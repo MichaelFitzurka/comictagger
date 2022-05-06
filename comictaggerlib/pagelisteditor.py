@@ -99,6 +99,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.cbPageType.activated.connect(self.change_page_type)
         self.chkDoublePage.toggled.connect(self.toggle_double_page)
         self.leBookmark.editingFinished.connect(self.save_bookmark)
+        self.leKey.editingFinished.connect(self.save_key)
         self.btnUp.clicked.connect(self.move_current_up)
         self.btnDown.clicked.connect(self.move_current_down)
         self.pre_move_row = -1
@@ -112,6 +113,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.cbPageType.setDisabled(True)
         self.chkDoublePage.setDisabled(True)
         self.leBookmark.setDisabled(True)
+        self.leKey.setDisabled(True)
         self.comic_archive = None
         self.pages_list = []
 
@@ -229,6 +231,11 @@ class PageListEditor(QtWidgets.QWidget):
         else:
             self.leBookmark.setText("")
 
+        if "Key" in self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]:
+            self.leKey.setText(self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]["Key"])
+        else:
+            self.leKey.setText("")
+
         idx = int(self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]["Image"])
 
         if self.comic_archive is not None:
@@ -308,6 +315,30 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
+    def save_key(self):
+        row = self.listWidget.currentRow()
+        page_dict = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
+
+        current_key = ""
+        if "Key" in page_dict:
+            current_key = page_dict["Key"]
+
+        if self.leKey.text().strip():
+            new_key = str(self.leKey.text().strip())
+            if current_key != new_key:
+                page_dict["Key"] = new_key
+                self.modified.emit()
+        elif current_key != "":
+            del page_dict["Key"]
+            self.modified.emit()
+
+        item = self.listWidget.item(row)
+        # wrap the dict in a tuple to keep from being converted to QStrings
+        item.setData(QtCore.Qt.UserRole, (page_dict,))
+        item.setText(self.list_entry_text(page_dict))
+
+        self.listWidget.setFocus()
+
     def set_data(self, comic_archive: ComicArchive, pages_list: list):
         self.comic_archive = comic_archive
         self.pages_list = pages_list
@@ -315,6 +346,7 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setDisabled(False)
             self.chkDoublePage.setDisabled(False)
             self.leBookmark.setDisabled(False)
+            self.leKey.setDisabled(False)
 
         self.listWidget.itemSelectionChanged.disconnect(self.change_page)
 
@@ -340,6 +372,8 @@ class PageListEditor(QtWidgets.QWidget):
             text += " " + "\U00002461"
         if "Bookmark" in page_dict:
             text += " " + "\U0001F516"
+        if "Key" in page_dict:
+            text += " " + "\U0001F511"
         return text
 
     def get_page_list(self):
@@ -369,9 +403,11 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(True)
             self.chkDoublePage.setEnabled(True)
             self.leBookmark.setEnabled(True)
+            self.leKey.setEnabled(True)
             self.listWidget.setEnabled(True)
 
             self.leBookmark.setPalette(active_palette)
+            self.leKey.setPalette(active_palette)
             self.listWidget.setPalette(active_palette)
 
         elif data_style == MetaDataStyle.CBI:
@@ -380,9 +416,11 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
+            self.leKey.setEnabled(False)
             self.listWidget.setEnabled(False)
 
             self.leBookmark.setPalette(inactive_palette3)
+            self.leKey.setPalette(inactive_palette3)
             self.listWidget.setPalette(inactive_palette3)
 
         elif data_style == MetaDataStyle.COMET:
@@ -393,3 +431,4 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
+            self.leKey.setEnabled(False)

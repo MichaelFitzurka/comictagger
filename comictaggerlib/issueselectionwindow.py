@@ -121,6 +121,14 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.twList.setItem(row, 0, item)
 
+            item_text = record["id"]
+            item = IssueNumberTableWidgetItem(item_text)
+            item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, record["id"])
+            item.setData(QtCore.Qt.ItemDataRole.DisplayRole, item_text)
+            item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.twList.setItem(row, 1, item)
+
             item_text = record["cover_date"]
             if item_text is None:
                 item_text = ""
@@ -132,7 +140,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             item = QtWidgets.QTableWidgetItem(item_text)
             item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.twList.setItem(row, 1, item)
+            self.twList.setItem(row, 2, item)
 
             item_text = record["name"]
             if item_text is None:
@@ -140,7 +148,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             item = QtWidgets.QTableWidgetItem(item_text)
             item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.twList.setItem(row, 2, item)
+            self.twList.setItem(row, 3, item)
 
             if (
                 IssueString(record["issue_number"]).as_string().lower()

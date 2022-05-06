@@ -405,19 +405,26 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.twList.setItem(row, 1, item)
 
+            item_text = record["id"]
+            item = QtWidgets.QTableWidgetItem(item_text)
+            item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            item.setData(QtCore.Qt.ItemDataRole.DisplayRole, record["id"])
+            item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.twList.setItem(row, 2, item)
+
             item_text = record["count_of_issues"]
             item = QtWidgets.QTableWidgetItem(item_text)
             item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
             item.setData(QtCore.Qt.ItemDataRole.DisplayRole, record["count_of_issues"])
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.twList.setItem(row, 2, item)
+            self.twList.setItem(row, 3, item)
 
             if record["publisher"] is not None:
                 item_text = record["publisher"]["name"]
                 item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
                 item = QtWidgets.QTableWidgetItem(item_text)
                 item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.twList.setItem(row, 3, item)
+                self.twList.setItem(row, 4, item)
 
             row += 1
 
