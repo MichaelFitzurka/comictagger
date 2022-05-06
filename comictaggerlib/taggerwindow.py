@@ -67,7 +67,7 @@ def execute(f: callable):
 
 
 class TaggerWindow(QtWidgets.QMainWindow):
-    appName = "ComicTagger"
+    appName = "ComicTagger+"
     version = ctversion.version
 
     def __init__(self, file_list, settings, parent=None, opts=None):
