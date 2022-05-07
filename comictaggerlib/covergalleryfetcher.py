@@ -6,10 +6,10 @@ from urllib.parse import unquote_plus
 from urllib.request import urlopen
 
 from bs4 import BeautifulSoup
-from py7zr import SevenZipFile
 
 from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.comicvinetalker import ComicVineTalker
+
 
 class CoverGalleryFetcher:
     def __init__(self, comic_archive, metadata):
@@ -82,9 +82,10 @@ class CoverGalleryFetcher:
 
         return cover_urls
 
-    def process_cover_url(self, cover_url, key_count, cover_url_count):
+    def process_cover_url(self, cover_url, key_count=999, cover_url_count=999):
         cover_filename = "CoverGallery/X-Cover-{0:03d}-{1:03d}-{2}".format(
-            key_count, cover_url_count, unquote_plus(os.path.basename(cover_url)))
+            key_count, cover_url_count, unquote_plus(os.path.basename(cover_url))
+        )
 
         if self.is_cover_in_archive(cover_filename):
             self.skips.append(cover_url)

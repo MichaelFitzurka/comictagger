@@ -1249,6 +1249,7 @@
     <addaction name="actionSearchOnline"/>
     <addaction name="actionAutoIdentify"/>
     <addaction name="separator"/>
+    <addaction name="actionWebCover"/>
     <addaction name="actionCoverGallery"/>
     <addaction name="separator"/>
     <addaction name="actionApplyCBLTransform"/>
@@ -1451,6 +1452,17 @@
    </property>
    <property name="statusTip">
     <string>Search online for tags,auto-identify best match, and save to archive</string>
+   </property>
+  </action>
+  <action name="actionWebCover">
+   <property name="text">
+    <string>Add Web Cover</string>
+   </property>
+   <property name="toolTip">
+    <string>Save web link to archive</string>
+   </property>
+   <property name="statusTip">
+    <string>Save web link to archive</string>
    </property>
   </action>
   <action name="actionCoverGallery">

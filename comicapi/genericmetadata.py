@@ -51,6 +51,7 @@ class PageType:
 class ImageMetadata(TypedDict, total=False):
     Type: str
     Bookmark: str
+    Key: str
     DoublePage: bool
     Image: int
     ImageSize: str
@@ -224,7 +225,7 @@ class GenericMetadata:
 
     def add_page(self, image_metadata=None):
         i = len(self.pages)
-        if (image_metadata is None):
+        if image_metadata is None:
             image_metadata = ImageMetadata()
         image_metadata["Image"] = i
         self.pages.append(image_metadata)

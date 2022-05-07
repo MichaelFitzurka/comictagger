@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import natsort
 from PyQt5 import QtCore, QtGui, QtNetwork, QtWidgets, uic
+from PyQt5.QtWidgets import QInputDialog
 
 from comicapi import utils
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
@@ -357,6 +358,9 @@ Have fun!
         self.actionAutoIdentify.setShortcut("Ctrl+I")
         self.actionAutoIdentify.triggered.connect(self.auto_identify_search)
 
+        self.actionWebCover.setStatusTip("Save web link to archive")
+        self.actionWebCover.triggered.connect(self.save_web_cover)
+
         self.actionCoverGallery.setShortcut("Ctrl+G")
         self.actionCoverGallery.setStatusTip("Search online for covers and alternates, and save to archive")
         self.actionCoverGallery.triggered.connect(self.save_cover_gallery)
@@ -400,6 +404,7 @@ Have fun!
         self.actionAutoTag.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("autotag.png")))
         self.actionClearEntryForm.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("clear.png")))
         self.actionPageBrowser.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("browse.png")))
+        self.actionWebCover.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("right.png")))
         self.actionCoverGallery.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("app.png")))
 
         self.toolBar.addAction(self.actionLoad)
@@ -410,6 +415,7 @@ Have fun!
         self.toolBar.addAction(self.actionAutoTag)
         self.toolBar.addAction(self.actionClearEntryForm)
         self.toolBar.addAction(self.actionPageBrowser)
+        self.toolBar.addAction(self.actionWebCover)
         self.toolBar.addAction(self.actionCoverGallery)
 
     def repackage_archive(self):
@@ -982,6 +988,72 @@ Please choose options below, and select OK.
 
         self.query_online(autoselect=True)
 
+    def save_web_cover(self):
+        if self.comic_archive is None or not self.comic_archive.is_writable():
+            QtWidgets.QMessageBox.information(
+                self, self.tr("Web Link"), self.tr("Cannot add web link, archive is not writable.")
+            )
+            return
+
+        if not self.comic_archive.has_cix():
+            QtWidgets.QMessageBox.information(
+                self, self.tr("Web Link"), self.tr("Only works for ComicRack archives ... others coming soon.")
+            )
+            return
+
+        if not self.dirty_flag_verification(
+            "Web Link", "If you add the web link now, other changes will also be committed.  Are you sure?"
+        ):
+            return
+
+        web_link = None
+        text, ok = QInputDialog.getText(self, self.tr("Enter Web Link"), self.tr("Web Link:"))
+        if ok:
+            try:
+                result = urlparse(text)
+                valid = all([result.scheme, result.netloc])
+                if not valid:
+                    QtWidgets.QMessageBox.warning(self, self.tr("Web Link Error"), self.tr("Web Link URL was invalid."))
+                    return
+                web_link = text
+            except:
+                QtWidgets.QMessageBox.critical(self, self.tr("Web Link Error"), self.tr("Web Link URL was invalid."))
+                return
+        else:
+            return
+
+        QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
+
+        cgf = CoverGalleryFetcher(self.comic_archive, self.metadata)
+        cgf.process_cover_url(web_link)
+        adds = cgf.get_adds()
+
+        if len(adds) > 0:
+            self.page_list_editor.set_data(self.comic_archive, self.metadata.pages)
+
+            self.comic_archive.reset_cache()
+            self.comic_archive.write_metadata(self.metadata, self.save_data_style)
+            self.comic_archive.load_cache([MetaDataStyle.CBI, MetaDataStyle.CIX])
+            self.clear_dirty_flag()
+            self.update_cover_image()
+            self.update_info_box()
+            self.update_menus()
+            self.fileSelectionList.update_current_row()
+            self.update_app_title()
+
+            if self.page_browser is not None:
+                self.page_browser.set_comic_archive(self.comic_archive)
+                self.page_browser.metadata = self.metadata
+
+        QtWidgets.QApplication.restoreOverrideCursor()
+
+        if len(adds) > 0:
+            QtWidgets.QMessageBox.information(self, self.tr("Web Link"), self.tr("Web link added to cover gallery."))
+        else:
+            QtWidgets.QMessageBox.warning(
+                self, self.tr("Web Link"), self.tr("Process failed to add web link to cover gallery.")
+            )
+
     def save_cover_gallery(self):
         if self.comic_archive is None or not self.comic_archive.is_writable():
             QtWidgets.QMessageBox.information(
@@ -1029,14 +1101,16 @@ Please choose options below, and select OK.
             QtWidgets.QMessageBox.warning(
                 self,
                 self.tr("Cover Gallery"),
-                self.tr("Process completed with {0} failures and {1} successes.".format(
-                    len(fails), len(adds) + len(skips))))
+                self.tr(
+                    "Process completed with {0} failures and {1} successes.".format(len(fails), len(adds) + len(skips))
+                ),
+            )
         else:
             QtWidgets.QMessageBox.information(
                 self,
                 self.tr("Cover Gallery"),
-                self.tr("Process completed succcessfully with {0} new covers added to archive.".format(
-                    len(adds))))
+                self.tr("Process completed succcessfully with {0} new covers added to archive.".format(len(adds))),
+            )
 
     def query_online(self, autoselect=False):
 
