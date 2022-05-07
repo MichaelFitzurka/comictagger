@@ -760,6 +760,9 @@ class ComicArchive:
             return self.read_comet()
         return GenericMetadata()
 
+    def write_file(self, filename, data):
+        return self.archiver.write_file(filename, data)
+
     def write_metadata(self, metadata, style):
         retcode = None
         if style == MetaDataStyle.CIX:
