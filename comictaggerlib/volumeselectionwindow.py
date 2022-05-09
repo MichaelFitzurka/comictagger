@@ -123,6 +123,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.parent = parent
         self.series_name = series_name
         self.issue_number = issue_number
+        self.issue_id = 0
+        self.issue_title = None
         self.year = year
         self.issue_count = issue_count
         self.volume_id = 0
@@ -281,6 +283,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         if selector.result():
             # we should now have a volume ID
             self.issue_number = selector.issue_number
+            self.issue_id = selector.issue_id
+            self.issue_title = selector.issue_title
             self.accept()
 
     def select_by_id(self):

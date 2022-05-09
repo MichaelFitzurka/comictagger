@@ -112,7 +112,7 @@ class TaggerWindow(QtWidgets.QMainWindow):
         grid_layout.addWidget(self.archiveCoverWidget)
         grid_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.page_list_editor = PageListEditor(self.tabPages)
+        self.page_list_editor = PageListEditor(self.tabPages, self.settings)
         grid_layout = QtWidgets.QGridLayout(self.tabPages)
         grid_layout.addWidget(self.page_list_editor)
 

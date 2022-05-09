@@ -23,6 +23,7 @@ from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
 from comictaggerlib.settings import ComicTaggerSettings
+from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,11 @@ class PageListEditor(QtWidgets.QWidget):
         PageType.Deleted: "Deleted",
     }
 
-    def __init__(self, parent):
+    def __init__(self, parent, settings):
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("pagelisteditor.ui"), self)
+        self.settings = settings
 
         self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
         gridlayout = QtWidgets.QGridLayout(self.pageContainer)
@@ -102,6 +104,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.leKey.editingFinished.connect(self.save_key)
         self.btnUp.clicked.connect(self.move_current_up)
         self.btnDown.clicked.connect(self.move_current_down)
+        self.btnKeySearch.clicked.connect(self.search_for_key)
         self.pre_move_row = -1
         self.first_front_page = None
 
@@ -339,6 +342,31 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
+    def search_for_key(self):
+        text, ok = QtWidgets.QInputDialog.getText(self, self.tr("Key Search"), self.tr("Search for:"))
+        if text and ok:
+            selector = VolumeSelectionWindow(self, text, None, None, None, None, None, self.settings)
+            selector.setWindowTitle(f"Search: '{text}' - Select Series")
+            selector.setModal(True)
+            selector.exec()
+
+            if (
+                selector.result()
+                and selector.issue_id != 0
+                and (str(selector.issue_id) not in self.leKey.text().strip().replace(" ", "").split(","))
+            ):
+                if self.leKey.text().strip():
+                    self.leKey.setText(f"{self.leKey.text().strip()}, {selector.issue_id}")
+                else:
+                    self.leKey.setText(str(selector.issue_id))
+                self.save_key()
+
+                if not self.leBookmark.text().strip():
+                    self.leBookmark.setText(selector.issue_title)
+                    self.save_bookmark()
+
+        return
+
     def set_data(self, comic_archive: ComicArchive, pages_list: list):
         self.comic_archive = comic_archive
         self.pages_list = pages_list
@@ -400,6 +428,7 @@ class PageListEditor(QtWidgets.QWidget):
         if data_style == MetaDataStyle.CIX:
             self.btnUp.setEnabled(True)
             self.btnDown.setEnabled(True)
+            self.btnKeySearch.setEnabled(True)
             self.cbPageType.setEnabled(True)
             self.chkDoublePage.setEnabled(True)
             self.leBookmark.setEnabled(True)
@@ -413,6 +442,7 @@ class PageListEditor(QtWidgets.QWidget):
         elif data_style == MetaDataStyle.CBI:
             self.btnUp.setEnabled(False)
             self.btnDown.setEnabled(False)
+            self.btnKeySearch.setEnabled(False)
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)

@@ -61,6 +61,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
 
         self.series_id = series_id
         self.issue_id = None
+        self.issue_title = None
         self.settings = settings
         self.url_fetch_thread = None
         self.issue_list = []
@@ -179,6 +180,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
         for record in self.issue_list:
             if record["id"] == self.issue_id:
                 self.issue_number = record["issue_number"]
+                self.issue_title = record["name"]
                 self.coverWidget.set_issue_id(int(self.issue_id))
                 if record["description"] is None:
                     self.teDescription.setText("")
