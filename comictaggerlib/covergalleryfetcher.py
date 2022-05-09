@@ -83,7 +83,7 @@ class CoverGalleryFetcher:
         return cover_urls
 
     def process_cover_url(self, cover_url, key_count=999, cover_url_count=999):
-        cover_filename = "CoverGallery/X-Cover-{0:03d}-{1:03d}-{2}".format(
+        cover_filename = "Cover Gallery/X-Cover {0:03d}-{1:03d} {2}".format(
             key_count, cover_url_count, unquote_plus(os.path.basename(cover_url))
         )
 
