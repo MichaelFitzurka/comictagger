@@ -128,6 +128,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.year = year
         self.issue_count = issue_count
         self.volume_id = 0
+        self.volume = None
+        self.volume_title = None
         self.comic_archive = comic_archive
         self.immediate_autoselect = autoselect
         self.cover_index_list = cover_index_list
@@ -465,7 +467,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         # list selection was changed, update the info on the volume
         for record in self.cv_search_results:
             if record["id"] == self.volume_id:
-                self.year = record["start_year"]
+                self.volume = record["start_year"]
+                self.volume_title = record["name"]
                 if record["description"] is None:
                     self.teDetails.setText("")
                 else:

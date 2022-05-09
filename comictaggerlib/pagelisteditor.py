@@ -366,7 +366,7 @@ class PageListEditor(QtWidgets.QWidget):
 
                 if not self.leBookmark.text().strip():
                     self.leBookmark.setText(
-                        f"{selector.series_name} ({selector.year}) #{int(selector.issue_number):03d} [{selector.issue_title}]"
+                        f"{selector.volume_title} ({selector.volume}) #{int(selector.issue_number):03d} [{selector.issue_title}]"
                     )
                     self.save_bookmark()
 
