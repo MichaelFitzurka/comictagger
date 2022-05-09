@@ -88,7 +88,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.InnerCover], PageType.InnerCover, "Alt+I")
         self.add_page_type_item(self.pageTypeNames[PageType.Advertisement], PageType.Advertisement, "Alt+A")
         self.add_page_type_item(self.pageTypeNames[PageType.Roundup], PageType.Roundup, "Alt+R")
-        self.add_page_type_item(self.pageTypeNames[PageType.Story], PageType.Story, "Alt+S")
+        self.add_page_type_item(self.pageTypeNames[PageType.Story], PageType.Story, "Alt+T")
         self.add_page_type_item(self.pageTypeNames[PageType.Editorial], PageType.Editorial, "Alt+E")
         self.add_page_type_item(self.pageTypeNames[PageType.Letters], PageType.Letters, "Alt+L")
         self.add_page_type_item(self.pageTypeNames[PageType.Preview], PageType.Preview, "Alt+P")
@@ -105,6 +105,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.btnUp.clicked.connect(self.move_current_up)
         self.btnDown.clicked.connect(self.move_current_down)
         self.btnKeySearch.clicked.connect(self.search_for_key)
+        self.btnClear.clicked.connect(self.clear_values)
         self.pre_move_row = -1
         self.first_front_page = None
 
@@ -117,6 +118,8 @@ class PageListEditor(QtWidgets.QWidget):
         self.chkDoublePage.setDisabled(True)
         self.leBookmark.setDisabled(True)
         self.leKey.setDisabled(True)
+        self.btnKeySearch.setDisabled(True)
+        self.btnClear.setDisabled(True)
         self.comic_archive = None
         self.pages_list = []
 
@@ -362,10 +365,20 @@ class PageListEditor(QtWidgets.QWidget):
                 self.save_key()
 
                 if not self.leBookmark.text().strip():
-                    self.leBookmark.setText(selector.issue_title)
+                    self.leBookmark.setText(
+                        f"{selector.series_name} ({selector.year}) #{int(selector.issue_number):03d} [{selector.issue_title}]"
+                    )
                     self.save_bookmark()
 
         return
+
+    def clear_values(self):
+        if self.leBookmark.text():
+            self.leBookmark.setText("")
+            self.save_bookmark()
+        if self.leKey.text():
+            self.leKey.setText("")
+            self.save_key()
 
     def set_data(self, comic_archive: ComicArchive, pages_list: list):
         self.comic_archive = comic_archive
@@ -428,11 +441,12 @@ class PageListEditor(QtWidgets.QWidget):
         if data_style == MetaDataStyle.CIX:
             self.btnUp.setEnabled(True)
             self.btnDown.setEnabled(True)
-            self.btnKeySearch.setEnabled(True)
             self.cbPageType.setEnabled(True)
             self.chkDoublePage.setEnabled(True)
             self.leBookmark.setEnabled(True)
             self.leKey.setEnabled(True)
+            self.btnKeySearch.setEnabled(True)
+            self.btnClear.setEnabled(True)
             self.listWidget.setEnabled(True)
 
             self.leBookmark.setPalette(active_palette)
@@ -442,11 +456,12 @@ class PageListEditor(QtWidgets.QWidget):
         elif data_style == MetaDataStyle.CBI:
             self.btnUp.setEnabled(False)
             self.btnDown.setEnabled(False)
-            self.btnKeySearch.setEnabled(False)
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
             self.leKey.setEnabled(False)
+            self.btnKeySearch.setEnabled(False)
+            self.btnClear.setEnabled(False)
             self.listWidget.setEnabled(False)
 
             self.leBookmark.setPalette(inactive_palette3)

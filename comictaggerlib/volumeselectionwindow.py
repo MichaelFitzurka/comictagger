@@ -465,6 +465,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         # list selection was changed, update the info on the volume
         for record in self.cv_search_results:
             if record["id"] == self.volume_id:
+                self.year = record["start_year"]
                 if record["description"] is None:
                     self.teDetails.setText("")
                 else:
