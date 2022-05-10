@@ -96,6 +96,9 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.Other], PageType.Other, "Alt+O")
         self.add_page_type_item(self.pageTypeNames[PageType.Deleted], PageType.Deleted, "Alt+X")
 
+        self.btnKeySearch.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
+        self.btnClear.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("clear.png")))
+
         self.listWidget.itemSelectionChanged.connect(self.change_page)
         item_move_events(self.listWidget).connect(self.item_move_event)
         self.cbPageType.activated.connect(self.change_page_type)
