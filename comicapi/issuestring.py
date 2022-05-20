@@ -21,12 +21,14 @@ comics industry throws at us.
 
 
 import logging
+import unicodedata
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class IssueString:
-    def __init__(self, text):
+    def __init__(self, text: Optional[str]) -> None:
 
         # break up the issue number string into 2 parts: the numeric and suffix string.
         # (assumes that the numeric portion is always first)
@@ -83,7 +85,7 @@ class IssueString:
         else:
             self.suffix = text
 
-    def as_string(self, pad=0):
+    def as_string(self, pad: int = 0) -> str:
         # return the float, left side zero-padded, with suffix attached
         if self.num is None:
             return self.suffix
@@ -111,16 +113,15 @@ class IssueString:
 
         return num_s
 
-    def as_float(self):
+    def as_float(self) -> Optional[float]:
         # return the float, with no suffix
-        if self.suffix == "½":
-            if self.num is not None:
-                return self.num + 0.5
+        if len(self.suffix) == 1 and self.suffix.isnumeric():
+            return (self.num or 0) + unicodedata.numeric(self.suffix)
 
             return 0.5
         return self.num
 
-    def as_int(self):
+    def as_int(self) -> Optional[int]:
         # return the int version of the float
         if self.num is None:
             return None

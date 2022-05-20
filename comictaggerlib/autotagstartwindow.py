@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class AutoTagStartWindow(QtWidgets.QDialog):
-    def __init__(self, parent, settings, msg):
+    def __init__(self, parent: QtWidgets.QWidget, settings: ComicTaggerSettings, msg: str) -> None:
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("autotagstartwindow.ui"), self)
@@ -43,6 +43,8 @@ class AutoTagStartWindow(QtWidgets.QDialog):
         self.cbxIgnoreLeadingDigitsInFilename.setCheckState(QtCore.Qt.CheckState.Unchecked)
         self.cbxRemoveAfterSuccess.setCheckState(QtCore.Qt.CheckState.Unchecked)
         self.cbxSpecifySearchString.setCheckState(QtCore.Qt.CheckState.Unchecked)
+        self.cbxAutoImprint.setCheckState(QtCore.Qt.CheckState.Unchecked)
+        self.cbxSplitWords.setCheckState(QtCore.Qt.Unchecked)
         self.leNameLengthMatchTolerance.setText(str(self.settings.id_length_delta_thresh))
         self.leSearchString.setEnabled(False)
 
@@ -58,6 +60,8 @@ class AutoTagStartWindow(QtWidgets.QDialog):
             self.cbxRemoveAfterSuccess.setCheckState(QtCore.Qt.CheckState.Checked)
         if self.settings.wait_and_retry_on_rate_limit:
             self.cbxWaitForRateLimit.setCheckState(QtCore.Qt.CheckState.Checked)
+        if self.settings.auto_imprint:
+            self.cbxAutoImprint.setCheckState(QtCore.Qt.CheckState.Checked)
 
         nlmt_tip = """ <html>The <b>Name Length Match Tolerance</b> is for eliminating automatic
                 search matches that are too long compared to your series name search. The higher
@@ -86,14 +90,15 @@ class AutoTagStartWindow(QtWidgets.QDialog):
         self.ignore_leading_digits_in_filename = False
         self.remove_after_success = False
         self.wait_and_retry_on_rate_limit = False
-        self.search_string = None
+        self.search_string = ""
         self.name_length_match_tolerance = self.settings.id_length_delta_thresh
+        self.split_words = self.cbxSplitWords.isChecked()
 
-    def search_string_toggle(self):
+    def search_string_toggle(self) -> None:
         enable = self.cbxSpecifySearchString.isChecked()
         self.leSearchString.setEnabled(enable)
 
-    def accept(self):
+    def accept(self) -> None:
         QtWidgets.QDialog.accept(self)
 
         self.auto_save_on_low = self.cbxSaveOnLowConfidence.isChecked()
@@ -103,6 +108,7 @@ class AutoTagStartWindow(QtWidgets.QDialog):
         self.remove_after_success = self.cbxRemoveAfterSuccess.isChecked()
         self.name_length_match_tolerance = int(self.leNameLengthMatchTolerance.text())
         self.wait_and_retry_on_rate_limit = self.cbxWaitForRateLimit.isChecked()
+        self.splitWords = self.cbxSplitWords.isChecked()
 
         # persist some settings
         self.settings.save_on_low_confidence = self.auto_save_on_low
@@ -113,6 +119,4 @@ class AutoTagStartWindow(QtWidgets.QDialog):
         self.settings.wait_and_retry_on_rate_limit = self.wait_and_retry_on_rate_limit
 
         if self.cbxSpecifySearchString.isChecked():
-            self.search_string = str(self.leSearchString.text())
-            if len(self.search_string) == 0:
-                self.search_string = None
+            self.search_string = self.leSearchString.text()
