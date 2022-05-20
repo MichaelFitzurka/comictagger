@@ -79,6 +79,9 @@ class CBLTransformer:
         if self.settings.copy_storyarcs_to_tags:
             add_string_list_to_tags(self.metadata.story_arc)
 
+        if self.settings.copy_storyarcs_to_tags:
+            add_string_list_to_tags(self.metadata.story_arc_number)
+
         if self.settings.copy_notes_to_comments:
             if self.metadata.notes is not None:
                 if self.metadata.comments is None:
