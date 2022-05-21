@@ -91,7 +91,6 @@ Accepts the following variables:
 {maturity_rating}    (string)
 {community_rating}     (string)
 {story_arc}      (string)
-{story_arc_number}      (string)
 {series_group}   (string)
 {scan_info}      (string)
 {characters}    (string)
