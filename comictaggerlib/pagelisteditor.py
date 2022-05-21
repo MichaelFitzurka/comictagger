@@ -99,7 +99,6 @@ class PageListEditor(QtWidgets.QWidget):
         self.cbPageType.activated.connect(self.change_page_type)
         self.chkDoublePage.toggled.connect(self.toggle_double_page)
         self.leBookmark.editingFinished.connect(self.save_bookmark)
-        self.leKey.editingFinished.connect(self.save_key)
         self.btnUp.clicked.connect(self.move_current_up)
         self.btnDown.clicked.connect(self.move_current_down)
         self.pre_move_row = -1
@@ -113,7 +112,6 @@ class PageListEditor(QtWidgets.QWidget):
         self.cbPageType.setDisabled(True)
         self.chkDoublePage.setDisabled(True)
         self.leBookmark.setDisabled(True)
-        self.leKey.setDisabled(True)
         self.comic_archive = None
         self.pages_list = []
 
@@ -230,11 +228,6 @@ class PageListEditor(QtWidgets.QWidget):
         else:
             self.leBookmark.setText("")
 
-        if "Key" in self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]:
-            self.leKey.setText(self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]["Key"])
-        else:
-            self.leKey.setText("")
-
         idx = int(self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]["Image"])
 
         if self.comic_archive is not None:
@@ -323,7 +316,6 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setDisabled(False)
             self.chkDoublePage.setDisabled(False)
             self.leBookmark.setDisabled(False)
-            self.leKey.setDisabled(False)
 
         self.listWidget.itemSelectionChanged.disconnect(self.change_page)
 
@@ -349,8 +341,6 @@ class PageListEditor(QtWidgets.QWidget):
             text += " " + "\U00002461"
         if "Bookmark" in page_dict:
             text += " " + "\U0001F516"
-        if "Key" in page_dict:
-            text += " " + "\U0001F511"
         return text
 
     def get_page_list(self) -> list[ImageMetadata]:
@@ -380,11 +370,9 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(True)
             self.chkDoublePage.setEnabled(True)
             self.leBookmark.setEnabled(True)
-            self.leKey.setEnabled(True)
             self.listWidget.setEnabled(True)
 
             self.leBookmark.setPalette(active_palette)
-            self.leKey.setPalette(active_palette)
             self.listWidget.setPalette(active_palette)
 
         elif data_style == MetaDataStyle.CBI:
@@ -393,7 +381,6 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
-            self.leKey.setEnabled(False)
             self.listWidget.setEnabled(False)
 
             self.leBookmark.setPalette(inactive_palette3)
@@ -408,4 +395,3 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
-            self.leKey.setEnabled(False)
