@@ -19,6 +19,7 @@ import logging
 import os
 import platform
 import sys
+from typing import Optional
 
 from comicapi import utils
 from comicapi.comicarchive import MetaDataStyle
@@ -58,6 +59,8 @@ If no options are given, {0} will run in windowed mode.
 -f, --parsefilename         Parse the filename to get some info,
                             specifically series name, issue number,
                             volume, and publication year.
+    --split-words           Splits words before parsing the filename.
+                            e.g. 'judgedredd' to 'judge dredd'
 -i, --interactive           Interactively query the user when there are
                             multiple matches for an online search.
     --nosummary             Suppress the default summary after a save
@@ -65,6 +68,8 @@ If no options are given, {0} will run in windowed mode.
 -o, --online                Search online and attempt to identify file
                             using existing metadata and images in archive.
                             May be used in conjunction with -f and -m.
+    --overwrite             Overwite any existing metadata.
+                            May be used in conjunction with -o, -f and -m.
     --id=ID                 Use the issue ID when searching online.
                             Overrides all other metadata.
 -m, --metadata=LIST         Explicitly define, as a list, some tags to be
@@ -76,6 +81,10 @@ If no options are given, {0} will run in windowed mode.
                             the example above.  Some names that can be
                             used: series, issue, issueCount, year,
                             publisher, title
+-a, --auto-imprint          Enables the auto imprint functionality.
+                            e.g. if the publisher is set to 'vertigo' it
+                            will be updated to 'DC Comics' and the imprint
+                            property will be set to 'Vertigo'.
 -r, --rename                Rename the file based on specified tag style.
     --noabort               Don't abort save operation when online match
                             is of low confidence.
@@ -98,25 +107,27 @@ If no options are given, {0} will run in windowed mode.
     --terse                 Don't say much (for print mode).
     --darkmode              Windows only. Force a dark pallet
     --config=CONFIG_DIR     Config directory defaults to ~/.ComicTagger
+                            on Linux/Mac and %APPDATA% on Windows
     --version               Display version.
 -h, --help                  Display this message.
 
 For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
 """
 
-    def __init__(self):
-        self.data_style = None
+    def __init__(self) -> None:
+        self.data_style: Optional[int] = None
         self.no_gui = False
-        self.filename = None
+        self.filename: Optional[str] = None
         self.verbose = False
         self.terse = False
-        self.metadata = None
+        self.metadata = GenericMetadata()
+        self.auto_imprint = False
         self.print_tags = False
         self.copy_tags = False
         self.delete_tags = False
         self.export_to_zip = False
         self.abort_export_on_conflict = False
-        self.delete_rar_after_export = False
+        self.delete_after_zip_export = False
         self.search_online = False
         self.dryrun = False
         self.abortOnLowConfidence = True
@@ -124,23 +135,25 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
         self.parse_filename = False
         self.show_save_summary = True
         self.raw = False
-        self.cv_api_key = None
+        self.cv_api_key: Optional[str] = None
         self.only_set_key = False
         self.rename_file = False
         self.no_overwrite = False
         self.interactive = False
-        self.issue_id = None
+        self.issue_id: Optional[str] = None
         self.recursive = False
         self.run_script = False
-        self.script = None
+        self.script: Optional[str] = None
         self.wait_and_retry_on_rate_limit = False
         self.assume_issue_is_one_if_not_set = False
-        self.file_list = []
+        self.file_list: list[str] = []
         self.darkmode = False
-        self.copy_source = None
+        self.copy_source: Optional[int] = None
         self.config_path = ""
+        self.overwrite_metadata = False
+        self.split_words = False
 
-    def display_msg_and_quit(self, msg, code, show_help=False):
+    def display_msg_and_quit(self, msg: Optional[str], code: int, show_help: bool = False) -> None:
         appname = os.path.basename(sys.argv[0])
         if msg is not None:
             print(msg)
@@ -150,7 +163,7 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
             print("For more help, run with '--help'")
         sys.exit(code)
 
-    def parse_metadata_from_string(self, mdstr):
+    def parse_metadata_from_string(self, mdstr: str) -> GenericMetadata:
         """The metadata string is a comma separated list of name-value pairs
         The names match the attributes of the internal metadata struct (for now)
         The caret is the special "escape character", since it's not common in
@@ -199,7 +212,7 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
                 setattr(md, key, value)
         return md
 
-    def launch_script(self, scriptfile):
+    def launch_script(self, scriptfile: str) -> None:
         # we were given a script.  special case for the args:
         # 1. ignore everything before the -S,
         # 2. pass all the ones that follow (including script name) to the script
@@ -232,7 +245,7 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
 
         sys.exit(0)
 
-    def parse_cmd_line_args(self):
+    def parse_cmd_line_args(self) -> None:
 
         if platform.system() == "Darwin" and hasattr(sys, "frozen") and sys.frozen == 1:
             # remove the PSN (process serial number) argument from OS/X
@@ -285,6 +298,8 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
                     "wait-on-cv-rate-limit",
                     "darkmode",
                     "config=",
+                    "overwrite",
+                    "split-words",
                 ],
             )
 
@@ -308,6 +323,8 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
                 self.delete_tags = True
             if o in ("-i", "--interactive"):
                 self.interactive = True
+            if o in ("-a", "--auto-imprint"):
+                self.auto_imprint = True
             if o in ("-c", "--copy"):
                 self.copy_tags = True
 
@@ -321,6 +338,8 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
                     self.display_msg_and_quit("Invalid copy tag source type", 1)
             if o in ("-o", "--online"):
                 self.search_online = True
+            if o == "--overwrite":
+                self.overwrite_metadata = True
             if o in ("-n", "--dryrun"):
                 self.dryrun = True
             if o in ("-m", "--metadata"):
@@ -332,11 +351,13 @@ For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki
             if o in ("-e", "--export_to_zip"):
                 self.export_to_zip = True
             if o == "--delete-rar":
-                self.delete_rar_after_export = True
+                self.delete_after_zip_export = True
             if o == "--abort-on-conflict":
                 self.abort_export_on_conflict = True
             if o in ("-f", "--parsefilename"):
                 self.parse_filename = True
+            if o == "--split-words":
+                self.split_words = True
             if o in ("-w", "--wait-on-cv-rate-limit"):
                 self.wait_and_retry_on_rate_limit = True
             if o == "--config":

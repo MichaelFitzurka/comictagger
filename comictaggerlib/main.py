@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import logging.handlers
 import os
@@ -22,9 +23,12 @@ import platform
 import signal
 import sys
 import traceback
+import types
+from typing import Optional
 
 import pkg_resources
 
+from comicapi import utils
 from comictaggerlib import cli
 from comictaggerlib.comicvinetalker import ComicVineTalker
 from comictaggerlib.ctversion import version
@@ -39,7 +43,7 @@ try:
     qt_available = True
     from PyQt5 import QtCore, QtGui, QtWidgets
 
-    def show_exception_box(log_msg):
+    def show_exception_box(log_msg: str) -> None:
         """Checks if a QApplication instance is available and shows a messagebox with the exception message.
         If unavailable (non-console application), log an additional notice.
         """
@@ -54,8 +58,8 @@ try:
     class UncaughtHook(QtCore.QObject):
         _exception_caught = QtCore.pyqtSignal(object)
 
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+        def __init__(self) -> None:
+            super().__init__()
 
             # this registers the exception_hook() function as hook with the Python interpreter
             sys.excepthook = self.exception_hook
@@ -63,7 +67,9 @@ try:
             # connect signal to execute the message box function always on main thread
             self._exception_caught.connect(show_exception_box)
 
-        def exception_hook(self, exc_type, exc_value, exc_traceback):
+        def exception_hook(
+            self, exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Optional[types.TracebackType]
+        ) -> None:
             """Function handling uncaught exceptions.
             It is triggered each time an uncaught exception occurs.
             """
@@ -81,16 +87,30 @@ try:
     qt_exception_hook = UncaughtHook()
     from comictaggerlib.taggerwindow import TaggerWindow
 except ImportError as e:
+
+    def show_exception_box(log_msg: str):
+        pass
+
     logger.error(str(e))
     qt_available = False
 
 
-def rotate(handler: logging.handlers.RotatingFileHandler, filename: pathlib.Path):
+def rotate(handler: logging.handlers.RotatingFileHandler, filename: pathlib.Path) -> None:
     if filename.is_file() and filename.stat().st_size > 0:
         handler.doRollover()
 
 
-def ctmain():
+def update_publishers() -> None:
+    json_file = ComicTaggerSettings.get_settings_folder() / "publishers.json"
+    if json_file.exists():
+        try:
+            utils.update_publishers(json.loads(json_file.read_text("utf-8")))
+        except Exception as e:
+            logger.exception("Failed to load publishers from %s", json_file)
+            show_exception_box(str(e))
+
+
+def ctmain() -> None:
     opts = Options()
     opts.parse_cmd_line_args()
     SETTINGS = ComicTaggerSettings(opts.config_path)
@@ -137,6 +157,9 @@ def ctmain():
     for pkg in sorted(pkg_resources.working_set, key=lambda x: x.project_name):
         logger.debug("%s\t%s", pkg.project_name, pkg.version)
 
+    utils.load_publishers()
+    update_publishers()
+
     if not qt_available and not opts.no_gui:
         opts.no_gui = True
         print("PyQt5 is not available. ComicTagger is limited to command-line mode.")
@@ -177,7 +200,7 @@ def ctmain():
             splash = QtWidgets.QSplashScreen(img)
             splash.show()
             splash.raise_()
-            app.processEvents()
+            QtWidgets.QApplication.processEvents()
 
         try:
             tagger_window = TaggerWindow(opts.file_list, SETTINGS, opts=opts)
