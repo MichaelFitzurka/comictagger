@@ -70,7 +70,7 @@ def execute(f: Callable[[], Any]) -> None:
 
 
 class TaggerWindow(QtWidgets.QMainWindow):
-    appName = "ComicTagger+"
+    appName = "ComicTagger"
     version = ctversion.version
 
     def __init__(
@@ -786,7 +786,6 @@ Please choose options below, and select OK.
         assign_text(self.teNotes, md.notes)
         assign_text(self.leCriticalRating, md.critical_rating)
         assign_text(self.leStoryArc, md.story_arc)
-        assign_text(self.leStoryArcNum, md.story_arc_number)
         assign_text(self.leScanInfo, md.scan_info)
         assign_text(self.leSeriesGroup, md.series_group)
         assign_text(self.leAltSeries, md.alternate_series)
@@ -1341,7 +1340,6 @@ Please choose options below, and select OK.
             self.cbBW,
             self.cbManga,
             self.leStoryArc,
-            self.leStoryArcNum,
             self.leScanInfo,
             self.leSeriesGroup,
             self.leAltSeries,
