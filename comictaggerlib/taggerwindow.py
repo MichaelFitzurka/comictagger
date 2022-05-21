@@ -921,7 +921,6 @@ Please choose options below, and select OK.
             md.community_rating = None
 
         md.story_arc = self.leStoryArc.text()
-        md.story_arc_number = self.leStoryArcNum.text()
         md.scan_info = self.leScanInfo.text()
         md.series_group = self.leSeriesGroup.text()
         md.alternate_series = self.leAltSeries.text()
