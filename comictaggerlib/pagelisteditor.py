@@ -384,7 +384,6 @@ class PageListEditor(QtWidgets.QWidget):
             self.listWidget.setEnabled(False)
 
             self.leBookmark.setPalette(inactive_palette3)
-            self.leKey.setPalette(inactive_palette3)
             self.listWidget.setPalette(inactive_palette3)
 
         elif data_style == MetaDataStyle.COMET:
