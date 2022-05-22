@@ -473,7 +473,7 @@ class ComicVineTalker:
         if settings.use_series_start_as_volume:
             metadata.volume = int(volume_results["start_year"])
 
-        metadata.notes = f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {issue_results['id']}]"
+        metadata.notes = f"Tagged with ComicTagger+ {ctversion.version} using info from Comic Vine on {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {issue_results['id']}]"
         metadata.web_link = issue_results["site_detail_url"]
 
         person_credits = issue_results["person_credits"]
