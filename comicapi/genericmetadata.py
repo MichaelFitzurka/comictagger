@@ -109,6 +109,7 @@ class GenericMetadata:
         self.community_rating: Optional[str] = None
 
         self.story_arc: Optional[str] = None
+        self.story_arc_number: Optional[str] = None
         self.series_group: Optional[str] = None
         self.scan_info: Optional[str] = None
 
@@ -170,6 +171,7 @@ class GenericMetadata:
         assign("maturity_rating", new_md.maturity_rating)
         assign("community_rating", new_md.community_rating)
         assign("story_arc", new_md.story_arc)
+        assign("story_arc_number", new_md.story_arc_number)
         assign("series_group", new_md.series_group)
         assign("scan_info", new_md.scan_info)
         assign("characters", new_md.characters)
@@ -309,6 +311,7 @@ class GenericMetadata:
         add_attr_string("maturity_rating")
         add_attr_string("community_rating")
         add_attr_string("story_arc")
+        add_attr_string("story_arc_number")
         add_attr_string("series_group")
         add_attr_string("scan_info")
         add_attr_string("characters")
@@ -394,6 +397,7 @@ md_test.page_count = 24
 md_test.maturity_rating = "Everyone 10+"
 md_test.community_rating = "3.0"
 md_test.story_arc = "Here and Now"
+md_test.story_arc_number = "1"
 md_test.series_group = "Futuristic Tales"
 md_test.scan_info = "(CC BY-NC-SA 3.0)"
 md_test.characters = "Anda"

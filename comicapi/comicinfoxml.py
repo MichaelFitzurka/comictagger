@@ -93,8 +93,6 @@ class ComicInfoXml:
         assign("Volume", md.volume)
         assign("AlternateSeries", md.alternate_series)
         assign("AlternateNumber", md.alternate_number)
-        assign("StoryArc", md.story_arc)
-        assign("SeriesGroup", md.series_group)
         assign("AlternateCount", md.alternate_count)
         assign("Summary", md.comments)
         assign("Notes", md.notes)
@@ -152,21 +150,26 @@ class ComicInfoXml:
 
         assign("Editor", utils.list_to_string(credit_editor_list))
 
+        # Translator list
+
         assign("Publisher", md.publisher)
         assign("Imprint", md.imprint)
         assign("Genre", md.genre)
+        # Tags
         assign("Web", md.web_link)
         assign("PageCount", md.page_count)
         assign("LanguageISO", md.language)
         assign("Format", md.format)
-        assign("AgeRating", md.maturity_rating)
-        assign("CommunityRating", md.community_rating)
         assign("BlackAndWhite", "Yes" if md.black_and_white else None)
         assign("Manga", md.manga)
         assign("Characters", md.characters)
         assign("Teams", md.teams)
         assign("Locations", md.locations)
         assign("ScanInformation", md.scan_info)
+        assign("StoryArc", md.story_arc)
+        assign("StoryArcNum", md.story_arc_number)
+        assign("SeriesGroup", md.series_group)
+        assign("AgeRating", md.maturity_rating)
 
         #  loop and add the page entries under pages node
         pages_node = root.find("Pages")
@@ -178,6 +181,8 @@ class ComicInfoXml:
         for page_dict in md.pages:
             page_node = ET.SubElement(pages_node, "Page")
             page_node.attrib = OrderedDict(sorted((k, str(v)) for k, v in page_dict.items()))
+
+        assign("CommunityRating", md.community_rating)
 
         ET.indent(root)
 
@@ -226,6 +231,7 @@ class ComicInfoXml:
         md.page_count = utils.xlate(get("PageCount"), True)
         md.scan_info = utils.xlate(get("ScanInformation"))
         md.story_arc = utils.xlate(get("StoryArc"))
+        md.story_arc_number = utils.xlate(get("StoryArcNum"))
         md.series_group = utils.xlate(get("SeriesGroup"))
         md.maturity_rating = utils.xlate(get("AgeRating"))
         md.community_rating = utils.xlate(get("CommunityRating"))
