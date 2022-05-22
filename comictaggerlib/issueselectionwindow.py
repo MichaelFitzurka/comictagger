@@ -130,6 +130,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             item_text = record["id"]
             QTW_item = QtWidgets.QTableWidgetItem(item_text)
             QTW_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            QTW_item.setData(QtCore.Qt.ItemDataRole.DisplayRole, item_text)
             QTW_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.twList.setItem(row, 1, QTW_item)
 
