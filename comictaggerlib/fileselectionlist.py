@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import List
+from typing import Callable, List, Optional, cast
 
 from PyQt5 import QtCore, QtWidgets, uic
 
@@ -29,12 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 class FileTableWidgetItem(QtWidgets.QTableWidgetItem):
-    def __lt__(self, other):
-        return self.data(QtCore.Qt.ItemDataRole.UserRole) < other.data(QtCore.Qt.ItemDataRole.UserRole)
+    def __lt__(self, other: object) -> bool:
+        return self.data(QtCore.Qt.ItemDataRole.UserRole) < other.data(QtCore.Qt.ItemDataRole.UserRole)  # type: ignore
 
 
 class FileInfo:
-    def __init__(self, ca: ComicArchive):
+    def __init__(self, ca: ComicArchive) -> None:
         self.ca: ComicArchive = ca
 
 
@@ -50,7 +50,12 @@ class FileSelectionList(QtWidgets.QWidget):
     folderColNum = 5
     dataColNum = fileColNum
 
-    def __init__(self, parent, settings, dirty_flag_verification):
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        settings: ComicTaggerSettings,
+        dirty_flag_verification: Callable[[str, str], bool],
+    ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("fileselectionlist.ui"), self)
@@ -83,44 +88,58 @@ class FileSelectionList(QtWidgets.QWidget):
 
         self.dirty_flag_verification = dirty_flag_verification
 
-    def get_sorting(self) -> (int, int):
+    def get_sorting(self) -> tuple[int, int]:
         col = self.twList.horizontalHeader().sortIndicatorSection()
         order = self.twList.horizontalHeader().sortIndicatorOrder()
         return int(col), int(order)
 
-    def set_sorting(self, col: int, order: QtCore.Qt.SortOrder):
+    def set_sorting(self, col: int, order: QtCore.Qt.SortOrder) -> None:
         self.twList.horizontalHeader().setSortIndicator(col, order)
 
-    def add_app_action(self, action):
+    def add_app_action(self, action: QtWidgets.QAction) -> None:
         self.insertAction(QtWidgets.QAction(), action)
 
-    def set_modified_flag(self, modified):
+    def set_modified_flag(self, modified: bool) -> None:
         self.dirty_flag = modified
 
-    def select_all(self):
+    def select_all(self) -> None:
         self.twList.setRangeSelected(QtWidgets.QTableWidgetSelectionRange(0, 0, self.twList.rowCount() - 1, 5), True)
 
-    def deselect_all(self):
+    def deselect_all(self) -> None:
         self.twList.setRangeSelected(QtWidgets.QTableWidgetSelectionRange(0, 0, self.twList.rowCount() - 1, 5), False)
 
-    def remove_archive_list(self, ca_list):
+    def remove_archive_list(self, ca_list: list[ComicArchive]) -> None:
         self.twList.setSortingEnabled(False)
+        current_removed = False
         for ca in ca_list:
             for row in range(self.twList.rowCount()):
                 row_ca = self.get_archive_by_row(row)
                 if row_ca == ca:
+                    if row == self.twList.currentRow():
+                        current_removed = True
                     self.twList.removeRow(row)
                     break
         self.twList.setSortingEnabled(True)
 
-    def get_archive_by_row(self, row):
-        fi = self.twList.item(row, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
-        return fi.ca
+        if self.twList.rowCount() > 0 and current_removed:
+            # since on a removal, we select row 0, make sure callback occurs if
+            # we're already there
+            if self.twList.currentRow() == 0:
+                self.current_item_changed_cb(self.twList.currentItem(), None)
+            self.twList.selectRow(0)
+        elif self.twList.rowCount() <= 0:
+            self.listCleared.emit()
 
-    def get_current_archive(self):
+    def get_archive_by_row(self, row: int) -> Optional[ComicArchive]:
+        if row >= 0:
+            fi: FileInfo = self.twList.item(row, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
+            return fi.ca
+        return None
+
+    def get_current_archive(self) -> Optional[ComicArchive]:
         return self.get_archive_by_row(self.twList.currentRow())
 
-    def remove_selection(self):
+    def remove_selection(self) -> None:
         row_list = []
         for item in self.twList.selectedItems():
             if item.column() == 0:
@@ -156,7 +175,7 @@ class FileSelectionList(QtWidgets.QWidget):
         else:
             self.listCleared.emit()
 
-    def add_path_list(self, pathlist):
+    def add_path_list(self, pathlist: list[str]) -> None:
 
         filelist = utils.get_recursive_filelist(pathlist)
         # we now have a list of files to add
@@ -209,27 +228,20 @@ class FileSelectionList(QtWidgets.QWidget):
         if self.twList.columnWidth(FileSelectionList.folderColNum) > 200:
             self.twList.setColumnWidth(FileSelectionList.folderColNum, 200)
 
-    def is_list_dupe(self, path):
+    def is_list_dupe(self, path: str) -> bool:
+        return self.get_current_list_row(path) >= 0
+
+    def get_current_list_row(self, path: str) -> int:
         r = 0
         while r < self.twList.rowCount():
-            ca = self.get_archive_by_row(r)
-            if ca.path == path:
-                return True
-            r = r + 1
-
-        return False
-
-    def get_current_list_row(self, path):
-        r = 0
-        while r < self.twList.rowCount():
-            ca = self.get_archive_by_row(r)
+            ca = cast(ComicArchive, self.get_archive_by_row(r))
             if ca.path == path:
                 return r
             r = r + 1
 
         return -1
 
-    def add_path_item(self, path):
+    def add_path_item(self, path: str) -> int:
         path = str(path)
         path = os.path.abspath(path)
         # print "processing", path
@@ -240,7 +252,7 @@ class FileSelectionList(QtWidgets.QWidget):
         ca = ComicArchive(path, self.settings.rar_exe_path, ComicTaggerSettings.get_graphic("nocover.png"))
 
         if ca.seems_to_be_a_comic_archive():
-            row = self.twList.rowCount()
+            row: int = self.twList.rowCount()
             self.twList.insertRow(row)
 
             fi = FileInfo(ca)
@@ -279,59 +291,60 @@ class FileSelectionList(QtWidgets.QWidget):
             return row
         return -1
 
-    def update_row(self, row):
-        fi: FileInfo = self.twList.item(row, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
+    def update_row(self, row: int) -> None:
+        if row >= 0:
+            fi: FileInfo = self.twList.item(row, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
 
-        filename_item = self.twList.item(row, FileSelectionList.fileColNum)
-        folder_item = self.twList.item(row, FileSelectionList.folderColNum)
-        cix_item = self.twList.item(row, FileSelectionList.CRFlagColNum)
-        cbi_item = self.twList.item(row, FileSelectionList.CBLFlagColNum)
-        type_item = self.twList.item(row, FileSelectionList.typeColNum)
-        readonly_item = self.twList.item(row, FileSelectionList.readonlyColNum)
+            filename_item = self.twList.item(row, FileSelectionList.fileColNum)
+            folder_item = self.twList.item(row, FileSelectionList.folderColNum)
+            cix_item = self.twList.item(row, FileSelectionList.CRFlagColNum)
+            cbi_item = self.twList.item(row, FileSelectionList.CBLFlagColNum)
+            type_item = self.twList.item(row, FileSelectionList.typeColNum)
+            readonly_item = self.twList.item(row, FileSelectionList.readonlyColNum)
 
-        item_text = os.path.split(fi.ca.path)[0]
-        folder_item.setText(item_text)
-        folder_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            item_text = os.path.split(fi.ca.path)[0]
+            folder_item.setText(item_text)
+            folder_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
 
-        item_text = os.path.split(fi.ca.path)[1]
-        filename_item.setText(item_text)
-        filename_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            item_text = os.path.split(fi.ca.path)[1]
+            filename_item.setText(item_text)
+            filename_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
 
-        if fi.ca.is_sevenzip():
-            item_text = "7Z"
-        elif fi.ca.is_zip():
-            item_text = "ZIP"
-        elif fi.ca.is_rar():
-            item_text = "RAR"
-        else:
-            item_text = ""
-        type_item.setText(item_text)
-        type_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            if fi.ca.is_sevenzip():
+                item_text = "7Z"
+            elif fi.ca.is_zip():
+                item_text = "ZIP"
+            elif fi.ca.is_rar():
+                item_text = "RAR"
+            else:
+                item_text = ""
+            type_item.setText(item_text)
+            type_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
 
-        if fi.ca.has_cix():
-            cix_item.setCheckState(QtCore.Qt.CheckState.Checked)
-            cix_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
-        else:
-            cix_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
-            cix_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            if fi.ca.has_cix():
+                cix_item.setCheckState(QtCore.Qt.CheckState.Checked)
+                cix_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
+            else:
+                cix_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
+                cix_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-        if fi.ca.has_cbi():
-            cbi_item.setCheckState(QtCore.Qt.CheckState.Checked)
-            cbi_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
-        else:
-            cbi_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
-            cbi_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            if fi.ca.has_cbi():
+                cbi_item.setCheckState(QtCore.Qt.CheckState.Checked)
+                cbi_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
+            else:
+                cbi_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
+                cbi_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-        if not fi.ca.is_writable():
-            readonly_item.setCheckState(QtCore.Qt.CheckState.Checked)
-            readonly_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
-        else:
-            readonly_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
-            readonly_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            if not fi.ca.is_writable():
+                readonly_item.setCheckState(QtCore.Qt.CheckState.Checked)
+                readonly_item.setData(QtCore.Qt.ItemDataRole.UserRole, True)
+            else:
+                readonly_item.setData(QtCore.Qt.ItemDataRole.UserRole, False)
+                readonly_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
-        # Reading these will force them into the ComicArchive's cache
-        fi.ca.read_cix()
-        fi.ca.has_cbi()
+            # Reading these will force them into the ComicArchive's cache
+            fi.ca.read_cix()
+            fi.ca.has_cbi()
 
     def get_selected_archive_list(self) -> List[ComicArchive]:
         ca_list: List[ComicArchive] = []
@@ -343,10 +356,10 @@ class FileSelectionList(QtWidgets.QWidget):
 
         return ca_list
 
-    def update_current_row(self):
+    def update_current_row(self) -> None:
         self.update_row(self.twList.currentRow())
 
-    def update_selected_rows(self):
+    def update_selected_rows(self) -> None:
         self.twList.setSortingEnabled(False)
         for r in range(self.twList.rowCount()):
             item = self.twList.item(r, FileSelectionList.dataColNum)
@@ -354,30 +367,30 @@ class FileSelectionList(QtWidgets.QWidget):
                 self.update_row(r)
         self.twList.setSortingEnabled(True)
 
-    def current_item_changed_cb(self, curr, prev):
+    def current_item_changed_cb(self, curr: Optional[QtCore.QModelIndex], prev: Optional[QtCore.QModelIndex]) -> None:
+        if curr is not None:
+            new_idx = curr.row()
+            old_idx = -1
+            if prev is not None:
+                old_idx = prev.row()
 
-        new_idx = curr.row()
-        old_idx = -1
-        if prev is not None:
-            old_idx = prev.row()
-
-        if old_idx == new_idx:
-            return
-
-        # don't allow change if modified
-        if prev is not None and new_idx != old_idx:
-            if not self.dirty_flag_verification(
-                "Change Archive", "If you change archives now, data in the form will be lost.  Are you sure?"
-            ):
-                self.twList.currentItemChanged.disconnect(self.current_item_changed_cb)
-                self.twList.setCurrentItem(prev)
-                self.twList.currentItemChanged.connect(self.current_item_changed_cb)
-                # Need to defer this revert selection, for some reason
-                QtCore.QTimer.singleShot(1, self.revert_selection)
+            if old_idx == new_idx:
                 return
 
-        fi = self.twList.item(new_idx, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
-        self.selectionChanged.emit(QtCore.QVariant(fi))
+            # don't allow change if modified
+            if prev is not None and new_idx != old_idx:
+                if not self.dirty_flag_verification(
+                    "Change Archive", "If you change archives now, data in the form will be lost.  Are you sure?"
+                ):
+                    self.twList.currentItemChanged.disconnect(self.current_item_changed_cb)
+                    self.twList.setCurrentItem(prev)
+                    self.twList.currentItemChanged.connect(self.current_item_changed_cb)
+                    # Need to defer this revert selection, for some reason
+                    QtCore.QTimer.singleShot(1, self.revert_selection)
+                    return
 
-    def revert_selection(self):
+            fi = self.twList.item(new_idx, FileSelectionList.dataColNum).data(QtCore.Qt.ItemDataRole.UserRole)
+            self.selectionChanged.emit(QtCore.QVariant(fi))
+
+    def revert_selection(self) -> None:
         self.twList.selectRow(self.twList.currentRow())
