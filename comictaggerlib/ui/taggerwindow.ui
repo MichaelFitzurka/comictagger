@@ -20,7 +20,7 @@
    <bool>false</bool>
   </property>
   <property name="windowTitle">
-   <string>ComicTagger</string>
+   <string>ComicTagger+</string>
   </property>
   <property name="unifiedTitleAndToolBarOnMac">
    <bool>true</bool>
