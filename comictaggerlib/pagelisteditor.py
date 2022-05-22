@@ -20,7 +20,7 @@ from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets, uic
 
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
-from comicapi.genericmetadata import PageType
+from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
 from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
@@ -28,12 +28,12 @@ from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
 logger = logging.getLogger(__name__)
 
 
-def item_move_events(widget):
+def item_move_events(widget: QtWidgets.QWidget) -> QtCore.pyqtBoundSignal:
     class Filter(QtCore.QObject):
 
         mysignal = QtCore.pyqtSignal(str)
 
-        def eventFilter(self, obj, event):
+        def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
 
             if obj == widget:
                 if event.type() == QtCore.QEvent.Type.ChildRemoved:
@@ -68,7 +68,7 @@ class PageListEditor(QtWidgets.QWidget):
         PageType.Deleted: "Deleted",
     }
 
-    def __init__(self, parent, settings):
+    def __init__(self, parent: QtWidgets.QWidget, settings: ComicTaggerSettings) -> None:
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("pagelisteditor.ui"), self)
@@ -110,12 +110,12 @@ class PageListEditor(QtWidgets.QWidget):
         self.btnKeySearch.clicked.connect(self.search_for_key)
         self.btnClear.clicked.connect(self.clear_values)
         self.pre_move_row = -1
-        self.first_front_page = None
+        self.first_front_page: Optional[int] = None
 
         self.comic_archive: Optional[ComicArchive] = None
-        self.pages_list = []
+        self.pages_list: list[ImageMetadata] = []
 
-    def reset_page(self):
+    def reset_page(self) -> None:
         self.pageWidget.clear()
         self.cbPageType.setDisabled(True)
         self.chkDoublePage.setDisabled(True)
@@ -126,26 +126,25 @@ class PageListEditor(QtWidgets.QWidget):
         self.comic_archive = None
         self.pages_list = []
 
-    def add_page_type_item(self, text, user_data, shortcut, show_shortcut=True):
+    def add_page_type_item(self, text: str, user_data: str, shortcut: str, show_shortcut: bool = True) -> None:
         if show_shortcut:
             text = text + " (" + shortcut + ")"
         self.cbPageType.addItem(text, user_data)
-        actionItem = QtWidgets.QAction(
-            shortcut, self, triggered=lambda: self.select_page_type_item(self.cbPageType.findData(user_data))
-        )
+        actionItem = QtWidgets.QAction(shortcut, self)
+        actionItem.triggered.connect(lambda: self.select_page_type_item(self.cbPageType.findData(user_data)))
         actionItem.setShortcut(shortcut)
         self.addAction(actionItem)
 
-    def select_page_type_item(self, idx):
+    def select_page_type_item(self, idx: int) -> None:
         if self.cbPageType.isEnabled():
             self.cbPageType.setCurrentIndex(idx)
             self.change_page_type(idx)
 
-    def get_new_indexes(self, movement):
+    def get_new_indexes(self, movement: int) -> list[tuple[int, int]]:
         selection = self.listWidget.selectionModel().selectedRows()
         selection.sort(reverse=movement > 0)
-        newindexes = []
-        oldindexes = []
+        newindexes: list[int] = []
+        oldindexes: list[int] = []
         for x in selection:
             current = x.row()
             oldindexes.append(current)
@@ -158,17 +157,17 @@ class PageListEditor(QtWidgets.QWidget):
         newindexes.sort()
         return list(zip(newindexes, oldindexes))
 
-    def set_selection(self, indexes):
-        selection_ranges = []
+    def set_selection(self, indexes: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        selection_ranges: list[tuple[int, int]] = []
         first = 0
-        for i, selection in enumerate(indexes):
+        for i, sel in enumerate(indexes):
             if i == 0:
-                first = selection[0]
+                first = sel[0]
                 continue
 
-            if selection != indexes[i - 1][0] + 1:
+            if sel[0] != indexes[i - 1][0] + 1:
                 selection_ranges.append((first, indexes[i - 1][0]))
-                first = selection[0]
+                first = sel[0]
 
         selection_ranges.append((first, indexes[-1][0]))
         selection = QtCore.QItemSelection()
@@ -181,7 +180,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.listWidget.selectionModel().select(selection, QtCore.QItemSelectionModel.SelectionFlag.ClearAndSelect)
         return selection_ranges
 
-    def move_current_up(self):
+    def move_current_up(self) -> None:
         row = self.listWidget.currentRow()
         selection = self.get_new_indexes(-1)
         for sel in selection:
@@ -195,7 +194,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.emit_front_cover_change()
         self.modified.emit()
 
-    def move_current_down(self):
+    def move_current_down(self) -> None:
         row = self.listWidget.currentRow()
         selection = self.get_new_indexes(1)
         selection.sort(reverse=True)
@@ -210,7 +209,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.set_selection(selection)
         self.modified.emit()
 
-    def item_move_event(self, s):
+    def item_move_event(self, s: str) -> None:
         if s == "start":
             self.pre_move_row = self.listWidget.currentRow()
         if s == "finish":
@@ -219,14 +218,14 @@ class PageListEditor(QtWidgets.QWidget):
                 self.emit_front_cover_change()
                 self.modified.emit()
 
-    def change_page_type(self, i):
+    def change_page_type(self, i: int) -> None:
         new_type = self.cbPageType.itemData(i)
         if self.get_current_page_type() != new_type:
             self.set_current_page_type(new_type)
             self.emit_front_cover_change()
             self.modified.emit()
 
-    def change_page(self):
+    def change_page(self) -> None:
         row = self.listWidget.currentRow()
         pagetype = self.get_current_page_type()
 
@@ -250,27 +249,27 @@ class PageListEditor(QtWidgets.QWidget):
         if self.comic_archive is not None:
             self.pageWidget.set_archive(self.comic_archive, idx)
 
-    def get_first_front_cover(self):
+    def get_first_front_cover(self) -> int:
         front_cover = 0
         for i in range(self.listWidget.count()):
             item = self.listWidget.item(i)
-            page_dict = item.data(QtCore.Qt.ItemDataRole.UserRole)[0]
+            page_dict: ImageMetadata = item.data(QtCore.Qt.ItemDataRole.UserRole)[0]
             if "Type" in page_dict and page_dict["Type"] == PageType.FrontCover:
                 front_cover = int(page_dict["Image"])
                 break
         return front_cover
 
-    def get_current_page_type(self):
+    def get_current_page_type(self) -> str:
         row = self.listWidget.currentRow()
-        page_dict = self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]
+        page_dict: ImageMetadata = self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]
         if "Type" in page_dict:
             return page_dict["Type"]
 
         return ""
 
-    def set_current_page_type(self, t):
+    def set_current_page_type(self, t: str) -> None:
         row = self.listWidget.currentRow()
-        page_dict = self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]
+        page_dict: ImageMetadata = self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]
 
         if t == "":
             if "Type" in page_dict:
@@ -283,12 +282,14 @@ class PageListEditor(QtWidgets.QWidget):
         item.setData(QtCore.Qt.ItemDataRole.UserRole, (page_dict,))
         item.setText(self.list_entry_text(page_dict))
 
-    def toggle_double_page(self):
+    def toggle_double_page(self) -> None:
         row = self.listWidget.currentRow()
-        page_dict = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
+        page_dict: ImageMetadata = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
 
-        if self.sender().isChecked():
-            page_dict["DoublePage"] = str("true")
+        cbx = self.sender()
+
+        if isinstance(cbx, QtWidgets.QCheckBox) and cbx.isChecked():
+            page_dict["DoublePage"] = True
         elif "DoublePage" in page_dict:
             del page_dict["DoublePage"]
         self.modified.emit()
@@ -300,9 +301,9 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
-    def save_bookmark(self):
+    def save_bookmark(self) -> None:
         row = self.listWidget.currentRow()
-        page_dict = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
+        page_dict: ImageMetadata = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
 
         current_bookmark = ""
         if "Bookmark" in page_dict:
@@ -324,7 +325,7 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
-    def save_key(self):
+    def save_key(self) -> None:
         row = self.listWidget.currentRow()
         page_dict = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
 
@@ -348,7 +349,7 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
-    def search_for_key(self):
+    def search_for_key(self) -> None:
         text, ok = QtWidgets.QInputDialog.getText(self, self.tr("Key Search"), self.tr("Search for:"))
         if text and ok:
             selector = VolumeSelectionWindow(self, text, None, None, None, None, None, self.settings)
@@ -373,9 +374,7 @@ class PageListEditor(QtWidgets.QWidget):
                     )
                     self.save_bookmark()
 
-        return
-
-    def clear_values(self):
+    def clear_values(self) -> None:
         if self.leBookmark.text():
             self.leBookmark.setText("")
             self.save_bookmark()
@@ -383,7 +382,7 @@ class PageListEditor(QtWidgets.QWidget):
             self.leKey.setText("")
             self.save_key()
 
-    def set_data(self, comic_archive: ComicArchive, pages_list: list):
+    def set_data(self, comic_archive: ComicArchive, pages_list: list[ImageMetadata]) -> None:
         self.comic_archive = comic_archive
         self.pages_list = pages_list
         if pages_list is not None and len(pages_list) > 0:
@@ -405,7 +404,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.listWidget.itemSelectionChanged.connect(self.change_page)
         self.listWidget.setCurrentRow(0)
 
-    def list_entry_text(self, page_dict):
+    def list_entry_text(self, page_dict: ImageMetadata) -> str:
         text = str(int(page_dict["Image"]) + 1)
         if "Type" in page_dict:
             if page_dict["Type"] in self.pageTypeNames:
@@ -420,19 +419,19 @@ class PageListEditor(QtWidgets.QWidget):
             text += " " + "\U0001F511"
         return text
 
-    def get_page_list(self):
+    def get_page_list(self) -> list[ImageMetadata]:
         page_list = []
         for i in range(self.listWidget.count()):
             item = self.listWidget.item(i)
             page_list.append(item.data(QtCore.Qt.ItemDataRole.UserRole)[0])
         return page_list
 
-    def emit_front_cover_change(self):
+    def emit_front_cover_change(self) -> None:
         if self.first_front_page != self.get_first_front_cover():
             self.first_front_page = self.get_first_front_cover()
             self.firstFrontCoverChanged.emit(self.first_front_page)
 
-    def set_metadata_style(self, data_style):
+    def set_metadata_style(self, data_style: int) -> None:
         # depending on the current data style, certain fields are disabled
 
         inactive_color = QtGui.QColor(255, 170, 150)
