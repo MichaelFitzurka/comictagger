@@ -23,6 +23,7 @@ from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
 from comictaggerlib.settings import ComicTaggerSettings
+from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,11 @@ class PageListEditor(QtWidgets.QWidget):
         PageType.Deleted: "Deleted",
     }
 
-    def __init__(self, parent: QtWidgets.QWidget) -> None:
+    def __init__(self, parent: QtWidgets.QWidget, settings: ComicTaggerSettings) -> None:
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("pagelisteditor.ui"), self)
+        self.settings = settings
 
         self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
         gridlayout = QtWidgets.QGridLayout(self.pageContainer)
@@ -86,7 +88,7 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.InnerCover], PageType.InnerCover, "Alt+I")
         self.add_page_type_item(self.pageTypeNames[PageType.Advertisement], PageType.Advertisement, "Alt+A")
         self.add_page_type_item(self.pageTypeNames[PageType.Roundup], PageType.Roundup, "Alt+R")
-        self.add_page_type_item(self.pageTypeNames[PageType.Story], PageType.Story, "Alt+S")
+        self.add_page_type_item(self.pageTypeNames[PageType.Story], PageType.Story, "Alt+T")
         self.add_page_type_item(self.pageTypeNames[PageType.Editorial], PageType.Editorial, "Alt+E")
         self.add_page_type_item(self.pageTypeNames[PageType.Letters], PageType.Letters, "Alt+L")
         self.add_page_type_item(self.pageTypeNames[PageType.Preview], PageType.Preview, "Alt+P")
@@ -94,13 +96,19 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.Other], PageType.Other, "Alt+O")
         self.add_page_type_item(self.pageTypeNames[PageType.Deleted], PageType.Deleted, "Alt+X")
 
+        self.btnKeySearch.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
+        self.btnClear.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("clear.png")))
+
         self.listWidget.itemSelectionChanged.connect(self.change_page)
         item_move_events(self.listWidget).connect(self.item_move_event)
         self.cbPageType.activated.connect(self.change_page_type)
         self.chkDoublePage.toggled.connect(self.toggle_double_page)
         self.leBookmark.editingFinished.connect(self.save_bookmark)
+        self.leKey.editingFinished.connect(self.save_key)
         self.btnUp.clicked.connect(self.move_current_up)
         self.btnDown.clicked.connect(self.move_current_down)
+        self.btnKeySearch.clicked.connect(self.search_for_key)
+        self.btnClear.clicked.connect(self.clear_values)
         self.pre_move_row = -1
         self.first_front_page: Optional[int] = None
 
@@ -112,6 +120,9 @@ class PageListEditor(QtWidgets.QWidget):
         self.cbPageType.setDisabled(True)
         self.chkDoublePage.setDisabled(True)
         self.leBookmark.setDisabled(True)
+        self.leKey.setDisabled(True)
+        self.btnKeySearch.setDisabled(True)
+        self.btnClear.setDisabled(True)
         self.comic_archive = None
         self.pages_list = []
 
@@ -228,6 +239,11 @@ class PageListEditor(QtWidgets.QWidget):
         else:
             self.leBookmark.setText("")
 
+        if "Key" in self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]:
+            self.leKey.setText(self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]["Key"])
+        else:
+            self.leKey.setText("")
+
         idx = int(self.listWidget.item(row).data(QtCore.Qt.ItemDataRole.UserRole)[0]["Image"])
 
         if self.comic_archive is not None:
@@ -309,6 +325,63 @@ class PageListEditor(QtWidgets.QWidget):
 
         self.listWidget.setFocus()
 
+    def save_key(self) -> None:
+        row = self.listWidget.currentRow()
+        page_dict = self.listWidget.item(row).data(QtCore.Qt.UserRole)[0]
+
+        current_key = ""
+        if "Key" in page_dict:
+            current_key = page_dict["Key"]
+
+        if self.leKey.text().strip():
+            new_key = str(self.leKey.text().strip())
+            if current_key != new_key:
+                page_dict["Key"] = new_key
+                self.modified.emit()
+        elif current_key != "":
+            del page_dict["Key"]
+            self.modified.emit()
+
+        item = self.listWidget.item(row)
+        # wrap the dict in a tuple to keep from being converted to QStrings
+        item.setData(QtCore.Qt.UserRole, (page_dict,))
+        item.setText(self.list_entry_text(page_dict))
+
+        self.listWidget.setFocus()
+
+    def search_for_key(self) -> None:
+        text, ok = QtWidgets.QInputDialog.getText(self, self.tr("Key Search"), self.tr("Search for:"))
+        if text and ok:
+            selector = VolumeSelectionWindow(self, text, None, None, None, None, None, self.settings)
+            selector.setWindowTitle(f"Search: '{text}' - Select Series")
+            selector.setModal(True)
+            selector.exec()
+
+            if (
+                selector.result()
+                and selector.issue_id != 0
+                and (str(selector.issue_id) not in self.leKey.text().strip().replace(" ", "").split(","))
+            ):
+                if self.leKey.text().strip():
+                    self.leKey.setText(f"{self.leKey.text().strip()}, {selector.issue_id}")
+                else:
+                    self.leKey.setText(str(selector.issue_id))
+                self.save_key()
+
+                if not self.leBookmark.text().strip():
+                    self.leBookmark.setText(
+                        f"{selector.volume_title} [{selector.issue_title}] ({selector.volume}) #{int(selector.issue_number):03d}"
+                    )
+                    self.save_bookmark()
+
+    def clear_values(self) -> None:
+        if self.leBookmark.text():
+            self.leBookmark.setText("")
+            self.save_bookmark()
+        if self.leKey.text():
+            self.leKey.setText("")
+            self.save_key()
+
     def set_data(self, comic_archive: ComicArchive, pages_list: list[ImageMetadata]) -> None:
         self.comic_archive = comic_archive
         self.pages_list = pages_list
@@ -316,6 +389,7 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setDisabled(False)
             self.chkDoublePage.setDisabled(False)
             self.leBookmark.setDisabled(False)
+            self.leKey.setDisabled(False)
 
         self.listWidget.itemSelectionChanged.disconnect(self.change_page)
 
@@ -341,6 +415,8 @@ class PageListEditor(QtWidgets.QWidget):
             text += " " + "\U00002461"
         if "Bookmark" in page_dict:
             text += " " + "\U0001F516"
+        if "Key" in page_dict:
+            text += " " + "\U0001F511"
         return text
 
     def get_page_list(self) -> list[ImageMetadata]:
@@ -370,9 +446,13 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(True)
             self.chkDoublePage.setEnabled(True)
             self.leBookmark.setEnabled(True)
+            self.leKey.setEnabled(True)
+            self.btnKeySearch.setEnabled(True)
+            self.btnClear.setEnabled(True)
             self.listWidget.setEnabled(True)
 
             self.leBookmark.setPalette(active_palette)
+            self.leKey.setPalette(active_palette)
             self.listWidget.setPalette(active_palette)
 
         elif data_style == MetaDataStyle.CBI:
@@ -381,9 +461,13 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
+            self.leKey.setEnabled(False)
+            self.btnKeySearch.setEnabled(False)
+            self.btnClear.setEnabled(False)
             self.listWidget.setEnabled(False)
 
             self.leBookmark.setPalette(inactive_palette3)
+            self.leKey.setPalette(inactive_palette3)
             self.listWidget.setPalette(inactive_palette3)
 
         elif data_style == MetaDataStyle.COMET:
@@ -394,3 +478,4 @@ class PageListEditor(QtWidgets.QWidget):
             self.cbPageType.setEnabled(False)
             self.chkDoublePage.setEnabled(False)
             self.leBookmark.setEnabled(False)
+            self.leKey.setEnabled(False)

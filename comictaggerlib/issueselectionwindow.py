@@ -66,6 +66,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
 
         self.series_id = series_id
         self.issue_id: Optional[int] = None
+        self.issue_title: Optional[str] = None
         self.settings = settings
         self.url_fetch_thread = None
         self.issue_list: list[CVIssuesResults] = []
@@ -126,6 +127,12 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.twList.setItem(row, 0, item)
 
+            item_text = record["id"]
+            QTW_item = QtWidgets.QTableWidgetItem(item_text)
+            QTW_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+            QTW_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.twList.setItem(row, 1, QTW_item)
+
             item_text = record["cover_date"]
             if item_text is None:
                 item_text = ""
@@ -137,7 +144,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             QTW_item = QtWidgets.QTableWidgetItem(item_text)
             QTW_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
             QTW_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.twList.setItem(row, 1, QTW_item)
+            self.twList.setItem(row, 2, QTW_item)
 
             item_text = record["name"]
             if item_text is None:
@@ -145,7 +152,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             QTW_item = QtWidgets.QTableWidgetItem(item_text)
             QTW_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
             QTW_item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.twList.setItem(row, 2, QTW_item)
+            self.twList.setItem(row, 3, QTW_item)
 
             if (
                 IssueString(record["issue_number"]).as_string().lower()
@@ -176,6 +183,7 @@ class IssueSelectionWindow(QtWidgets.QDialog):
         for record in self.issue_list:
             if record["id"] == self.issue_id:
                 self.issue_number = record["issue_number"]
+                self.issue_title = record["name"]
                 self.coverWidget.set_issue_id(self.issue_id)
                 if record["description"] is None:
                     self.teDescription.setText("")

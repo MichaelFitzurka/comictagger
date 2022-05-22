@@ -125,9 +125,13 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.settings = settings
         self.series_name = series_name
         self.issue_number = issue_number
+        self.issue_id = 0
+        self.issue_title = None
         self.year = year
         self.issue_count = issue_count
         self.volume_id = 0
+        self.volume = None
+        self.volume_title = None
         self.comic_archive = comic_archive
         self.immediate_autoselect = autoselect
         self.cover_index_list = cover_index_list
@@ -289,6 +293,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         if selector.result():
             # we should now have a volume ID
             self.issue_number = selector.issue_number
+            self.issue_id = selector.issue_id
+            self.issue_title = selector.issue_title
             self.accept()
 
     def select_by_id(self) -> None:
@@ -417,19 +423,26 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
                 item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
                 self.twList.setItem(row, 1, item)
 
+                item_text = str(record["id"])
+                item = QtWidgets.QTableWidgetItem(item_text)
+                item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
+                item.setData(QtCore.Qt.ItemDataRole.DisplayRole, record["id"])
+                item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
+                self.twList.setItem(row, 2, item)
+
                 item_text = str(record["count_of_issues"])
                 item = QtWidgets.QTableWidgetItem(item_text)
                 item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
                 item.setData(QtCore.Qt.ItemDataRole.DisplayRole, record["count_of_issues"])
                 item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                self.twList.setItem(row, 2, item)
+                self.twList.setItem(row, 3, item)
 
                 if record["publisher"] is not None:
                     item_text = record["publisher"]["name"]
                     item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
                     item = QtWidgets.QTableWidgetItem(item_text)
                     item.setFlags(QtCore.Qt.ItemFlag.ItemIsSelectable | QtCore.Qt.ItemFlag.ItemIsEnabled)
-                    self.twList.setItem(row, 3, item)
+                    self.twList.setItem(row, 4, item)
 
                 row += 1
 
@@ -466,6 +479,8 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         # list selection was changed, update the info on the volume
         for record in self.cv_search_results:
             if record["id"] == self.volume_id:
+                self.volume = record["start_year"]
+                self.volume_title = record["name"]
                 if record["description"] is None:
                     self.teDetails.setText("")
                 else:
