@@ -1251,6 +1251,9 @@
     <addaction name="actionAutoIdentify"/>
     <addaction name="actionAutoImprint"/>
     <addaction name="separator"/>
+    <addaction name="actionCoverGallery"/>
+    <addaction name="actionWebCover"/>
+    <addaction name="separator"/>
     <addaction name="actionApplyCBLTransform"/>
     <addaction name="actionReCalcPageDims"/>
    </widget>
@@ -1467,6 +1470,28 @@
    </property>
    <property name="toolTip">
     <string>Parse Filename and split words</string>
+   </property>
+  </action>
+  <action name="actionCoverGallery">
+   <property name="text">
+    <string>Add CV Covers</string>
+   </property>
+   <property name="toolTip">
+    <string>Search online for covers and alternates, and save to archive</string>
+   </property>
+   <property name="statusTip">
+    <string>Search online for covers and alternates, and save to archive</string>
+   </property>
+  </action>
+  <action name="actionWebCover">
+   <property name="text">
+    <string>Add Web Cover</string>
+   </property>
+   <property name="toolTip">
+    <string>Save web link to archive</string>
+   </property>
+   <property name="statusTip">
+    <string>Save web link to archive</string>
    </property>
   </action>
  </widget>

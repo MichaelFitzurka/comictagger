@@ -221,6 +221,14 @@ class GenericMetadata:
                 page_dict["Type"] = PageType.FrontCover
             self.pages.append(page_dict)
 
+    def add_page(self, image_metadata: ImageMetadata = None) -> None:
+        i = len(self.pages)
+        if image_metadata is None:
+            image_metadata = ImageMetadata()
+        image_metadata["Image"] = i
+        self.pages.append(image_metadata)
+        self.page_count = str(i + 1)
+
     def get_archive_page_index(self, pagenum: int) -> int:
         # convert the displayed page number to the page index of the file in
         # the archive
