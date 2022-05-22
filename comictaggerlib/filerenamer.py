@@ -148,6 +148,7 @@ class FileRenamer:
 
         # padding for issue
         md.issue = IssueString(md.issue).as_string(pad=self.issue_zero_padding)
+        md.issue_count = IssueString(md.issue_count).as_string(pad=self.issue_zero_padding)
 
         template = self.template
 
@@ -183,6 +184,7 @@ class FileRenamer:
 
         # remove padding
         md.issue = IssueString(md.issue).as_string()
+        md.issue_count = IssueString(md.issue_count).as_string()
         if self.move:
             return new_name.strip()
         return new_basename.strip()
