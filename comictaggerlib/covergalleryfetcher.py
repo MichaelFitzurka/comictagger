@@ -41,7 +41,7 @@ class CoverGalleryFetcher:
 
     def fetch_cover_gallery(self) -> Tuple[list[str], list[str], list[str]]:
         keys: list[str] = self.find_keys(self.metadata.pages)
-        if keys:
+        if keys != [""]:
             key_count: int = 0
             for key in keys:
                 key_count += 1
@@ -52,10 +52,9 @@ class CoverGalleryFetcher:
     def find_keys(self, pages: list[ImageMetadata]) -> list[str]:
         keys: str = ""
 
-        if pages:
-            for page in pages:
-                if "Key" in page and page["Key"]:
-                    keys += page["Key"].replace(" ", "") + ","
+        for page in pages:
+            if "Key" in page and page["Key"]:
+                keys += page["Key"].replace(" ", "") + ","
 
         return keys[:-1].split(",")
 
@@ -64,13 +63,12 @@ class CoverGalleryFetcher:
 
         issue_url: str = self.comic_vine.fetch_issue_page_url(int(key))
         if issue_url:
-            cover_urls: list[str] = self.find_cover_urls(issue_url)
+            cover_urls = self.find_cover_urls(issue_url)
 
-        if cover_urls:
-            cover_url_count: int = 0
-            for cover_url in cover_urls:
-                cover_url_count += 1
-                self.process_cover_url(cover_url, key_count, cover_url_count)
+        cover_url_count: int = 0
+        for cover_url in cover_urls:
+            cover_url_count += 1
+            self.process_cover_url(cover_url, key_count, cover_url_count)
 
     def find_cover_urls(self, issue_url: str) -> list[str]:
         cover_urls: list[str] = []
@@ -78,13 +76,12 @@ class CoverGalleryFetcher:
         page_html = urlopen(issue_url)
         soup = BeautifulSoup(page_html, "html.parser")
         divs = soup.find_all("div")
-        if divs:
-            for div in divs:
-                if "class" in div.attrs and "imgboxart" in div["class"] and "issue-cover" in div["class"]:
-                    if div.img["src"].startswith("http"):
-                        cover_urls.append(div.img["src"])
-                    elif div.img["data-src"].startswith("http"):
-                        cover_urls.append(div.img["data-src"])
+        for div in divs:
+            if "class" in div.attrs and "imgboxart" in div["class"] and "issue-cover" in div["class"]:
+                if div.img["src"].startswith("http"):
+                    cover_urls.append(div.img["src"])
+                elif div.img["data-src"].startswith("http"):
+                    cover_urls.append(div.img["data-src"])
 
         return cover_urls
 
