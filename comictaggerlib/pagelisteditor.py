@@ -369,8 +369,11 @@ class PageListEditor(QtWidgets.QWidget):
                 self.save_key()
 
                 if not self.leBookmark.text().strip():
+                    issue_title: str = ""
+                    if selector.issue_title:
+                        issue_title = "[" + selector.issue_title + "] "
                     self.leBookmark.setText(
-                        f"{selector.volume_title} [{selector.issue_title}] ({selector.volume}) #{int(selector.issue_number):03d}"
+                        f"{selector.volume_title} {issue_title}({selector.volume}) #{selector.issue_number.zfill(3)}"
                     )
                     self.save_bookmark()
 
