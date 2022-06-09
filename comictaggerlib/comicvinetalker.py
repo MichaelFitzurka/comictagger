@@ -1,25 +1,26 @@
 """A python class to manage communication with Comic Vine's REST API"""
-
+#
 # Copyright 2012-2014 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
 import json
 import logging
 import re
 import time
 from datetime import datetime
-from typing import Any, Callable, Optional, Union, cast
+from typing import Any, Callable, cast
 
 import requests
 from bs4 import BeautifulSoup
@@ -71,7 +72,7 @@ def list_fetch_complete(url_list: list[str]) -> None:
     ...
 
 
-def url_fetch_complete(image_url: str, thumb_url: Optional[str]) -> None:
+def url_fetch_complete(image_url: str, thumb_url: str | None) -> None:
     ...
 
 
@@ -85,7 +86,7 @@ class ComicVineTalker:
     @staticmethod
     def get_rate_limit_message() -> str:
         if ComicVineTalker.api_key == "":
-            return "Comic Vine rate limit exceeded.  You should configue your own Comic Vine API key."
+            return "Comic Vine rate limit exceeded.  You should configure your own Comic Vine API key."
 
         return "Comic Vine rate limit exceeded.  Please wait a bit."
 
@@ -97,14 +98,14 @@ class ComicVineTalker:
         # key that is registered to comictagger
         default_api_key = "27431e6787042105bd3e47e169a624521f89f3a4"
 
-        self.issue_id: Optional[int] = None
+        self.issue_id: int | None = None
 
         if ComicVineTalker.api_key == "":
             self.api_key = default_api_key
         else:
             self.api_key = ComicVineTalker.api_key
 
-        self.log_func: Optional[Callable[[str], None]] = None
+        self.log_func: Callable[[str], None] | None = None
 
         if qt_available:
             self.nam = QtNetwork.QNetworkAccessManager()
@@ -118,7 +119,7 @@ class ComicVineTalker:
         else:
             self.log_func(text)
 
-    def parse_date_str(self, date_str: str) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    def parse_date_str(self, date_str: str) -> tuple[int | None, int | None, int | None]:
         day = None
         month = None
         year = None
@@ -142,7 +143,7 @@ class ComicVineTalker:
 
             # Bogus request, but if the key is wrong, you get error 100: "Invalid API Key"
             return cv_response["status_code"] != 100
-        except:
+        except Exception:
             return False
 
     def get_cv_content(self, url: str, params: dict[str, Any]) -> CVResult:
@@ -199,15 +200,21 @@ class ComicVineTalker:
         raise ComicVineTalkerException(ComicVineTalkerException.Unknown, "Error on Comic Vine server")
 
     def search_for_series(
-        self, series_name: str, callback: Optional[Callable[[int, int], None]] = None, refresh_cache: bool = False
+        self,
+        series_name: str,
+        callback: Callable[[int, int], None] | None = None,
+        refresh_cache: bool = False,
+        literal: bool = False,
     ) -> list[CVVolumeResults]:
 
         # Sanitize the series name for comicvine searching, comicvine search ignore symbols
-        search_series_name = utils.sanitize_title(series_name)
+        search_series_name = utils.sanitize_title(series_name, literal)
+        logger.info("Searching: %s", search_series_name)
 
-        # before we search online, look in our cache, since we might have done this same search recently
+        # Before we search online, look in our cache, since we might have done this same search recently
+        # For literal searches always retrieve from online
         cvc = ComicVineCacher()
-        if not refresh_cache:
+        if not refresh_cache and not literal:
             cached_search_results = cvc.get_search_results(series_name)
 
             if len(cached_search_results) > 0:
@@ -257,24 +264,23 @@ class ComicVineTalker:
         stop_searching = False
         while current_result_count < total_result_count:
 
-            last_result = search_results[-1]["name"]
+            if not literal:
+                # Sanitize the series name for comicvine searching, comicvine search ignore symbols
+                last_result = utils.sanitize_title(search_results[-1]["name"])
 
-            # Sanitize the series name for comicvine searching, comicvine search ignore symbols
-            last_result = utils.sanitize_title(last_result)
+                # See if the last result's name has all the of the search terms.
+                # If not, break out of this, loop, we're done.
+                for term in search_series_name.split():
+                    if term not in last_result:
+                        stop_searching = True
+                        break
 
-            # See if the last result's name has all the of the search terms.
-            # If not, break out of this, loop, we're done.
-            for term in search_series_name.split():
-                if term not in last_result.lower():
+                # Also, stop searching when the word count of last results is too much longer than our search terms list
+                if len(last_result) > result_word_count_max:
                     stop_searching = True
+
+                if stop_searching:
                     break
-
-            # Also, stop searching when the word count of last results is too much longer than our search terms list
-            if len(last_result) > result_word_count_max:
-                stop_searching = True
-
-            if stop_searching:
-                break
 
             if callback is None:
                 self.write_log(f"getting another page of results {current_result_count} of {total_result_count}...\n")
@@ -289,18 +295,19 @@ class ComicVineTalker:
             if callback is not None:
                 callback(current_result_count, total_result_count)
 
-        # Remove any search results that don't contain all the search terms (iterate backwards for easy removal)
-        for i in range(len(search_results) - 1, -1, -1):
-            record = search_results[i]
-            # Sanitize the series name for comicvine searching, comicvine search ignore symbols
-            record_name = utils.sanitize_title(record["name"])
-            for term in search_series_name.split():
+        # Literal searches simply return the matches no extra processing is doneo
+        if not literal:
+            # Remove any search results that don't contain all the search terms (iterate backwards for easy removal)
+            for record in reversed(search_results):
+                # Sanitize the series name for comicvine searching, comicvine search ignore symbols
+                record_name = utils.sanitize_title(record["name"])
+                for term in search_series_name.split():
+                    if term not in record_name:
+                        search_results.remove(record)
+                        break
 
-                if term not in record_name:
-                    del search_results[i]
-                    break
-
-        # cache these search results
+        # Cache these search results, even if it's literal we cache the results
+        # The most it will cause is extra processing time
         cvc.add_search_results(series_name, search_results)
 
         return search_results
@@ -372,7 +379,7 @@ class ComicVineTalker:
         return volume_issues_result
 
     def fetch_issues_by_volume_issue_num_and_year(
-        self, volume_id_list: list[int], issue_number: str, year: Union[str, int, None]
+        self, volume_id_list: list[int], issue_number: str, year: str | int | None
     ) -> list[CVIssuesResults]:
         volume_filter = ""
         for vid in volume_id_list:
@@ -383,7 +390,7 @@ class ComicVineTalker:
         if int_year is not None:
             flt += f",cover_date:{int_year}-1-1|{int_year+1}-1-1"
 
-        params: dict[str, Union[str, int]] = {
+        params: dict[str, str | int] = {
             "api_key": self.api_key,
             "format": "json",
             "field_list": "id,volume,issue_number,name,image,cover_date,site_detail_url,description",
@@ -438,9 +445,9 @@ class ComicVineTalker:
         # Now, map the Comic Vine data to generic metadata
         return self.map_cv_data_to_metadata(volume_results, issue_results, settings)
 
-    def fetch_issue_data_by_issue_id(self, issue_id: str, settings: ComicTaggerSettings) -> GenericMetadata:
+    def fetch_issue_data_by_issue_id(self, issue_id: int, settings: ComicTaggerSettings) -> GenericMetadata:
 
-        issue_url = self.api_base_url + "/issue/" + CVTypeID.Issue + "-" + issue_id
+        issue_url = self.api_base_url + "/issue/" + CVTypeID.Issue + "-" + str(issue_id)
         params = {"api_key": self.api_key, "format": "json"}
         cv_response = self.get_cv_content(issue_url, params)
 
@@ -473,7 +480,10 @@ class ComicVineTalker:
         if settings.use_series_start_as_volume:
             metadata.volume = int(volume_results["start_year"])
 
-        metadata.notes = f"Tagged with ComicTagger+ {ctversion.version} using info from Comic Vine on {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {issue_results['id']}]"
+        metadata.notes = (
+            f"Tagged with ComicTagger+ {ctversion.version} using info from Comic Vine on"
+            f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {issue_results['id']}]"
+        )
         metadata.web_link = issue_results["site_detail_url"]
 
         person_credits = issue_results["person_credits"]
@@ -584,7 +594,7 @@ class ComicVineTalker:
                     # now we have the data, make it into text
                     fmtstr = ""
                     for w in col_widths:
-                        fmtstr += " {{:{}}}|".format(w + 1)
+                        fmtstr += f" {{:{w + 1}}}|"
                     width = sum(col_widths) + len(col_widths) * 2
                     table_text = ""
                     counter = 0
@@ -597,7 +607,7 @@ class ComicVineTalker:
                     table_strings.append(table_text)
 
                 newstring = newstring.format(*table_strings)
-            except:
+            except Exception:
                 # we caught an error rebuilding the table.
                 # just bail and remove the formatting
                 logger.exception("table parse error")
@@ -605,16 +615,16 @@ class ComicVineTalker:
 
         return newstring
 
-    def fetch_issue_date(self, issue_id: int) -> tuple[Optional[int], Optional[int]]:
+    def fetch_issue_date(self, issue_id: int) -> tuple[int | None, int | None]:
         details = self.fetch_issue_select_details(issue_id)
         _, month, year = self.parse_date_str(details["cover_date"] or "")
         return month, year
 
-    def fetch_issue_cover_urls(self, issue_id: int) -> tuple[Optional[str], Optional[str]]:
+    def fetch_issue_cover_urls(self, issue_id: int) -> tuple[str | None, str | None]:
         details = self.fetch_issue_select_details(issue_id)
         return details["image_url"], details["thumb_image_url"]
 
-    def fetch_issue_page_url(self, issue_id: int) -> Optional[str]:
+    def fetch_issue_page_url(self, issue_id: int) -> str | None:
         details = self.fetch_issue_select_details(issue_id)
         return details["site_detail_url"]
 
@@ -736,7 +746,7 @@ class ComicVineTalker:
         self.nam.finished.connect(self.async_fetch_issue_cover_url_complete)
         self.nam.get(QtNetwork.QNetworkRequest(QtCore.QUrl(issue_url)))
 
-    def async_fetch_issue_cover_url_complete(self, reply: "QtNetwork.QNetworkReply") -> None:
+    def async_fetch_issue_cover_url_complete(self, reply: QtNetwork.QNetworkReply) -> None:
         # read in the response
         data = reply.readAll()
 
@@ -772,7 +782,7 @@ class ComicVineTalker:
         self.nam.finished.connect(self.async_fetch_alternate_cover_urls_complete)
         self.nam.get(QtNetwork.QNetworkRequest(QtCore.QUrl(str(issue_page_url))))
 
-    def async_fetch_alternate_cover_urls_complete(self, reply: "QtNetwork.QNetworkReply") -> None:
+    def async_fetch_alternate_cover_urls_complete(self, reply: QtNetwork.QNetworkReply) -> None:
         # read in the response
         html = str(reply.readAll())
         alt_cover_url_list = self.parse_out_alt_cover_urls(html)
@@ -783,7 +793,7 @@ class ComicVineTalker:
         ComicVineTalker.alt_url_list_fetch_complete(alt_cover_url_list)
 
     def repair_urls(
-        self, issue_list: Union[list[CVIssuesResults], list[CVVolumeResults], list[CVIssueDetailResults]]
+        self, issue_list: list[CVIssuesResults] | list[CVVolumeResults] | list[CVIssueDetailResults]
     ) -> None:
         # make sure there are URLs for the image fields
         for issue in issue_list:

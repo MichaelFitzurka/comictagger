@@ -1182,7 +1182,7 @@
      <x>0</x>
      <y>0</y>
      <width>1096</width>
-     <height>21</height>
+     <height>30</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuComicTagger">
@@ -1236,6 +1236,7 @@
     <addaction name="actionSearchOnline"/>
     <addaction name="actionAutoIdentify"/>
     <addaction name="actionAutoImprint"/>
+    <addaction name="actionLiteralSearch"/>
     <addaction name="separator"/>
     <addaction name="actionApplyCBLTransform"/>
     <addaction name="actionReCalcPageDims"/>
@@ -1245,6 +1246,7 @@
      <string>Window</string>
     </property>
     <addaction name="actionPageBrowser"/>
+    <addaction name="actionLogWindow"/>
    </widget>
    <addaction name="menuComicTagger"/>
    <addaction name="menuTags"/>
@@ -1390,7 +1392,7 @@
   </action>
   <action name="actionComicTaggerForum">
    <property name="text">
-    <string>ComicTagger Forum...</string>
+    <string>ComicTagger Discussions...</string>
    </property>
   </action>
   <action name="actionWiki">
@@ -1453,6 +1455,19 @@
    </property>
    <property name="toolTip">
     <string>Parse Filename and split words</string>
+   </property>
+  </action>
+  <action name="actionLogWindow">
+   <property name="text">
+    <string>Show Log Window</string>
+   </property>
+  </action>
+  <action name="actionLiteralSearch">
+   <property name="text">
+    <string>Literal Search</string>
+   </property>
+   <property name="toolTip">
+    <string>perform a literal search on the series and return the first 50 results</string>
    </property>
   </action>
  </widget>
