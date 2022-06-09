@@ -64,8 +64,8 @@ class IssueSelectionWindow(QtWidgets.QDialog):
         )
 
         self.series_id = series_id
-        self.issue_id: Optional[int] = None
-        self.issue_title: Optional[str] = None
+        self.issue_id: int | None = None
+        self.issue_title: str | None = None
         self.settings = settings
         self.url_fetch_thread = None
         self.issue_list: list[CVIssuesResults] = []
