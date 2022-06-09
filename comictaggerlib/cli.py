@@ -1,27 +1,28 @@
 #!/usr/bin/python
-
 """ComicTagger CLI functions"""
-
+#
 # Copyright 2013 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 from pprint import pprint
-from typing import cast
 
 from comicapi import utils
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
@@ -30,18 +31,19 @@ from comictaggerlib.cbltransformer import CBLTransformer
 from comictaggerlib.comicvinetalker import ComicVineTalker, ComicVineTalkerException
 from comictaggerlib.filerenamer import FileRenamer
 from comictaggerlib.issueidentifier import IssueIdentifier
-from comictaggerlib.options import Options
 from comictaggerlib.resulttypes import IssueResult, MultipleMatch, OnlineMatchResults
 from comictaggerlib.settings import ComicTaggerSettings
 
 logger = logging.getLogger(__name__)
 
 
-def actual_issue_data_fetch(match: IssueResult, settings: ComicTaggerSettings, opts: Options) -> GenericMetadata:
+def actual_issue_data_fetch(
+    match: IssueResult, settings: ComicTaggerSettings, opts: argparse.Namespace
+) -> GenericMetadata:
     # now get the particular issue data
     try:
         comic_vine = ComicVineTalker()
-        comic_vine.wait_for_rate_limit = opts.wait_and_retry_on_rate_limit
+        comic_vine.wait_for_rate_limit = opts.wait_on_cv_rate_limit
         cv_md = comic_vine.fetch_issue_data(match["volume_id"], match["issue_number"], settings)
     except ComicVineTalkerException:
         logger.exception("Network error while getting issue details.  Save aborted")
@@ -53,10 +55,10 @@ def actual_issue_data_fetch(match: IssueResult, settings: ComicTaggerSettings, o
     return cv_md
 
 
-def actual_metadata_save(ca: ComicArchive, opts: Options, md: GenericMetadata) -> bool:
+def actual_metadata_save(ca: ComicArchive, opts: argparse.Namespace, md: GenericMetadata) -> bool:
     if not opts.dryrun:
         # write out the new data
-        if not ca.write_metadata(md, opts.data_style if opts.data_style is not None else 0):
+        if not ca.write_metadata(md, opts.type if opts.type is not None else 0):
             logger.error("The tag save seemed to fail!")
             return False
 
@@ -74,7 +76,7 @@ def actual_metadata_save(ca: ComicArchive, opts: Options, md: GenericMetadata) -
 
 
 def display_match_set_for_choice(
-    label: str, match_set: MultipleMatch, opts: Options, settings: ComicTaggerSettings
+    label: str, match_set: MultipleMatch, opts: argparse.Namespace, settings: ComicTaggerSettings
 ) -> None:
     print(f"{match_set.ca.path} -- {label}:")
 
@@ -103,11 +105,9 @@ def display_match_set_for_choice(
             # save the data!
             # we know at this point, that the file is all good to go
             ca = match_set.ca
-            md = create_local_metadata(
-                opts, ca, ca.has_metadata(opts.data_style if opts.data_style is not None else 0), settings
-            )
+            md = create_local_metadata(opts, ca, ca.has_metadata(opts.type if opts.type is not None else 0), settings)
             cv_md = actual_issue_data_fetch(match_set.matches[int(i) - 1], settings, opts)
-            if opts.overwrite_metadata:
+            if opts.overwrite:
                 md = cv_md
             else:
                 md.overlay(cv_md)
@@ -118,7 +118,9 @@ def display_match_set_for_choice(
             actual_metadata_save(ca, opts, md)
 
 
-def post_process_matches(match_results: OnlineMatchResults, opts: Options, settings: ComicTaggerSettings) -> None:
+def post_process_matches(
+    match_results: OnlineMatchResults, opts: argparse.Namespace, settings: ComicTaggerSettings
+) -> None:
     # now go through the match results
     if opts.show_save_summary:
         if len(match_results.good_matches) > 0:
@@ -161,14 +163,14 @@ def post_process_matches(match_results: OnlineMatchResults, opts: Options, setti
             display_match_set_for_choice(label, match_set, opts, settings)
 
 
-def cli_mode(opts: Options, settings: ComicTaggerSettings) -> None:
-    if len(opts.file_list) < 1:
+def cli_mode(opts: argparse.Namespace, settings: ComicTaggerSettings) -> None:
+    if len(opts.files) < 1:
         logger.error("You must specify at least one filename.  Use the -h option for more info")
         return
 
     match_results = OnlineMatchResults()
 
-    for f in opts.file_list:
+    for f in opts.files:
         process_file_cli(f, opts, settings, match_results)
         sys.stdout.flush()
 
@@ -176,7 +178,7 @@ def cli_mode(opts: Options, settings: ComicTaggerSettings) -> None:
 
 
 def create_local_metadata(
-    opts: Options, ca: ComicArchive, has_desired_tags: bool, settings: ComicTaggerSettings
+    opts: argparse.Namespace, ca: ComicArchive, has_desired_tags: bool, settings: ComicTaggerSettings
 ) -> GenericMetadata:
     md = GenericMetadata()
     md.set_default_page_list(ca.get_number_of_pages())
@@ -190,28 +192,26 @@ def create_local_metadata(
             settings.remove_publisher,
             opts.split_words,
         )
-        if opts.overwrite_metadata:
-            md = f_md
-        else:
-            md.overlay(f_md)
+
+        md.overlay(f_md)
 
     if has_desired_tags:
-        t_md = ca.read_metadata(opts.data_style if opts.data_style is not None else 0)
-        md.overlay(t_md)
+        try:
+            t_md = ca.read_metadata(opts.type if opts.type is not None else 0)
+            md.overlay(t_md)
+        except Exception as e:
+            logger.error("Failed to load metadata for %s: %s", ca.path, e)
 
     # finally, use explicit stuff
-    if opts.overwrite_metadata and not opts.metadata.is_empty:
-        md = opts.metadata
-    else:
-        md.overlay(opts.metadata)
+    md.overlay(opts.metadata)
 
     return md
 
 
 def process_file_cli(
-    filename: str, opts: Options, settings: ComicTaggerSettings, match_results: OnlineMatchResults
+    filename: str, opts: argparse.Namespace, settings: ComicTaggerSettings, match_results: OnlineMatchResults
 ) -> None:
-    batch_mode = len(opts.file_list) > 1
+    batch_mode = len(opts.files) > 1
 
     ca = ComicArchive(filename, settings.rar_exe_path, ComicTaggerSettings.get_graphic("nocover.png"))
 
@@ -223,7 +223,7 @@ def process_file_cli(
         logger.error("Sorry, but %s is not a comic archive!", filename)
         return
 
-    if not ca.is_writable() and (opts.delete_tags or opts.copy_tags or opts.save_tags or opts.rename_file):
+    if not ca.is_writable() and (opts.delete or opts.copy or opts.save or opts.rename):
         logger.error("This archive is not writable for that tag type")
         return
 
@@ -235,9 +235,9 @@ def process_file_cli(
     if ca.has_comet():
         has[MetaDataStyle.COMET] = True
 
-    if opts.print_tags:
+    if opts.print:
 
-        if opts.data_style is None:
+        if opts.type is None:
             page_count = ca.get_number_of_pages()
 
             brief = ""
@@ -275,35 +275,44 @@ def process_file_cli(
 
         print()
 
-        if opts.data_style is None or opts.data_style == MetaDataStyle.CIX:
+        if opts.type is None or opts.type == MetaDataStyle.CIX:
             if has[MetaDataStyle.CIX]:
                 print("--------- ComicRack tags ---------")
-                if opts.raw:
-                    print(ca.read_raw_cix())
-                else:
-                    print(ca.read_cix())
+                try:
+                    if opts.raw:
+                        print(ca.read_raw_cix())
+                    else:
+                        print(ca.read_cix())
+                except Exception as e:
+                    logger.error("Failed to load metadata for %s: %s", ca.path, e)
 
-        if opts.data_style is None or opts.data_style == MetaDataStyle.CBI:
+        if opts.type is None or opts.type == MetaDataStyle.CBI:
             if has[MetaDataStyle.CBI]:
                 print("------- ComicBookLover tags -------")
-                if opts.raw:
-                    pprint(json.loads(ca.read_raw_cbi()))
-                else:
-                    print(ca.read_cbi())
+                try:
+                    if opts.raw:
+                        pprint(json.loads(ca.read_raw_cbi()))
+                    else:
+                        print(ca.read_cbi())
+                except Exception as e:
+                    logger.error("Failed to load metadata for %s: %s", ca.path, e)
 
-        if opts.data_style is None or opts.data_style == MetaDataStyle.COMET:
+        if opts.type is None or opts.type == MetaDataStyle.COMET:
             if has[MetaDataStyle.COMET]:
                 print("----------- CoMet tags -----------")
-                if opts.raw:
-                    print(ca.read_raw_comet())
-                else:
-                    print(ca.read_comet())
+                try:
+                    if opts.raw:
+                        print(ca.read_raw_comet())
+                    else:
+                        print(ca.read_comet())
+                except Exception as e:
+                    logger.error("Failed to load metadata for %s: %s", ca.path, e)
 
-    elif opts.delete_tags:
-        style_name = MetaDataStyle.name[cast(int, opts.data_style)]
-        if has[cast(int, opts.data_style)]:
+    elif opts.delete:
+        style_name = MetaDataStyle.name[opts.type]
+        if has[opts.type]:
             if not opts.dryrun:
-                if not ca.remove_metadata(cast(int, opts.data_style)):
+                if not ca.remove_metadata(opts.type):
                     print(f"{filename}: Tag removal seemed to fail!")
                 else:
                     print(f"{filename}: Removed {style_name} tags.")
@@ -312,24 +321,28 @@ def process_file_cli(
         else:
             print(f"{filename}: This archive doesn't have {style_name} tags to remove.")
 
-    elif opts.copy_tags:
-        dst_style_name = MetaDataStyle.name[cast(int, opts.data_style)]
-        if opts.no_overwrite and has[cast(int, opts.data_style)]:
+    elif opts.copy:
+        dst_style_name = MetaDataStyle.name[opts.type]
+        if opts.no_overwrite and has[opts.type]:
             print(f"{filename}: Already has {dst_style_name} tags. Not overwriting.")
             return
-        if opts.copy_source == opts.data_style:
+        if opts.copy == opts.type:
             print(f"{filename}: Destination and source are same: {dst_style_name}. Nothing to do.")
             return
 
-        src_style_name = MetaDataStyle.name[cast(int, opts.copy_source)]
-        if has[cast(int, opts.copy_source)]:
+        src_style_name = MetaDataStyle.name[opts.copy]
+        if has[opts.copy]:
             if not opts.dryrun:
-                md = ca.read_metadata(cast(int, opts.copy_source))
+                try:
+                    md = ca.read_metadata(opts.copy)
+                except Exception as e:
+                    md = GenericMetadata()
+                    logger.error("Failed to load metadata for %s: %s", ca.path, e)
 
-                if settings.apply_cbl_transform_on_bulk_operation and opts.data_style == MetaDataStyle.CBI:
+                if settings.apply_cbl_transform_on_bulk_operation and opts.type == MetaDataStyle.CBI:
                     md = CBLTransformer(md, settings).apply()
 
-                if not ca.write_metadata(md, cast(int, opts.data_style)):
+                if not ca.write_metadata(md, opts.type):
                     print(f"{filename}: Tag copy seemed to fail!")
                 else:
                     print(f"{filename}: Copied {src_style_name} tags to {dst_style_name}.")
@@ -338,27 +351,27 @@ def process_file_cli(
         else:
             print(f"{filename}: This archive doesn't have {src_style_name} tags to copy.")
 
-    elif opts.save_tags:
+    elif opts.save:
 
-        if opts.no_overwrite and has[cast(int, opts.data_style)]:
-            print(f"{filename}: Already has {MetaDataStyle.name[cast(int, opts.data_style)]} tags. Not overwriting.")
+        if opts.no_overwrite and has[opts.type]:
+            print(f"{filename}: Already has {MetaDataStyle.name[opts.type]} tags. Not overwriting.")
             return
 
         if batch_mode:
             print(f"Processing {ca.path}...")
 
-        md = create_local_metadata(opts, ca, has[cast(int, opts.data_style)], settings)
+        md = create_local_metadata(opts, ca, has[opts.type], settings)
         if md.issue is None or md.issue == "":
-            if opts.assume_issue_is_one_if_not_set:
+            if opts.assume_issue_one:
                 md.issue = "1"
 
         # now, search online
-        if opts.search_online:
+        if opts.online:
             if opts.issue_id is not None:
                 # we were given the actual ID to search with
                 try:
                     comic_vine = ComicVineTalker()
-                    comic_vine.wait_for_rate_limit = opts.wait_and_retry_on_rate_limit
+                    comic_vine.wait_for_rate_limit = opts.wait_on_cv_rate_limit
                     cv_md = comic_vine.fetch_issue_data_by_issue_id(opts.issue_id, settings)
                 except ComicVineTalkerException:
                     logger.exception("Network error while getting issue details. Save aborted")
@@ -384,10 +397,10 @@ def process_file_cli(
                     if opts.verbose:
                         IssueIdentifier.default_write_output(text)
 
-                # use our overlayed MD struct to search
+                # use our overlaid MD struct to search
                 ii.set_additional_metadata(md)
                 ii.only_use_additional_meta_data = True
-                ii.wait_and_retry_on_rate_limit = opts.wait_and_retry_on_rate_limit
+                ii.wait_and_retry_on_rate_limit = opts.wait_on_cv_rate_limit
                 ii.set_output_function(myoutput)
                 ii.cover_page_index = md.get_cover_page_index_list()[0]
                 matches = ii.search()
@@ -422,7 +435,7 @@ def process_file_cli(
                     logger.error("Online search: Multiple good matches. Save aborted")
                     match_results.multiple_matches.append(MultipleMatch(ca, matches))
                     return
-                if low_confidence and opts.abortOnLowConfidence:
+                if low_confidence and opts.abort_on_low_confidence:
                     logger.error("Online search: Low confidence match. Save aborted")
                     match_results.low_confidence_matches.append(MultipleMatch(ca, matches))
                     return
@@ -435,11 +448,11 @@ def process_file_cli(
 
                 # now get the particular issue data
                 cv_md = actual_issue_data_fetch(matches[0], settings, opts)
-                if not cv_md.is_empty:
+                if cv_md.is_empty:
                     match_results.fetch_data_failures.append(str(ca.path.absolute()))
                     return
 
-            if opts.overwrite_metadata:
+            if opts.overwrite:
                 md = cv_md
             else:
                 md.overlay(cv_md)
@@ -453,14 +466,14 @@ def process_file_cli(
         else:
             match_results.good_matches.append(str(ca.path.absolute()))
 
-    elif opts.rename_file:
+    elif opts.rename:
 
         msg_hdr = ""
         if batch_mode:
             msg_hdr = f"{ca.path}: "
 
-        if opts.data_style is not None:
-            use_tags = has[opts.data_style]
+        if opts.type is not None:
+            use_tags = has[opts.type]
         else:
             use_tags = False
 
@@ -511,7 +524,7 @@ def process_file_cli(
         if not opts.dryrun:
             # rename the file
             os.makedirs(os.path.dirname(new_abs_path), 0o777, True)
-            os.rename(filename, new_abs_path)
+            shutil.move(filename, new_abs_path)
         else:
             suffix = " (dry-run, no change)"
 
@@ -529,7 +542,7 @@ def process_file_cli(
         rar_file = os.path.abspath(os.path.abspath(filename))
         new_file = os.path.splitext(rar_file)[0] + ".cbz"
 
-        if opts.abort_export_on_conflict and os.path.lexists(new_file):
+        if opts.abort_on_conflict and os.path.lexists(new_file):
             print(msg_hdr + f"{os.path.split(new_file)[1]} already exists in the that folder.")
             return
 
@@ -543,7 +556,7 @@ def process_file_cli(
                 if opts.delete_after_zip_export:
                     try:
                         os.unlink(rar_file)
-                    except:
+                    except OSError:
                         logger.exception(msg_hdr + "Error deleting original RAR after export")
                         delete_success = False
                     else:
@@ -555,7 +568,7 @@ def process_file_cli(
         else:
             msg = msg_hdr + f"Dry-run:  Would try to create {os.path.split(new_file)[1]}"
             if opts.delete_after_zip_export:
-                msg += " and delete orginal."
+                msg += " and delete original."
             print(msg)
             return
 
