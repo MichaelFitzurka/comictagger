@@ -1,18 +1,18 @@
 """Some generic utilities"""
-
 # Copyright 2012-2014 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
 import json
 import logging
@@ -21,7 +21,8 @@ import pathlib
 import re
 import unicodedata
 from collections import defaultdict
-from typing import Any, List, Optional, Union
+from shutil import which  # noqa: F401
+from typing import Any, Mapping
 
 import pycountry
 
@@ -32,7 +33,7 @@ class UtilsVars:
     already_fixed_encoding = False
 
 
-def get_recursive_filelist(pathlist: List[str]) -> List[str]:
+def get_recursive_filelist(pathlist: list[str]) -> list[str]:
     """Get a recursive list of of all files under all path items in the list"""
 
     filelist = []
@@ -55,7 +56,7 @@ def get_recursive_filelist(pathlist: List[str]) -> List[str]:
     return filelist
 
 
-def list_to_string(lst: List[Union[str, Any]]) -> str:
+def list_to_string(lst: list[str | Any]) -> str:
     string = ""
     if lst is not None:
         for item in lst:
@@ -75,25 +76,6 @@ def add_to_path(dirname: str) -> None:
         match = re.search(pattern, os.environ["PATH"])
         if not match:
             os.environ["PATH"] = dirname + os.pathsep + os.environ["PATH"]
-
-
-def which(program: str) -> Optional[str]:
-    """Returns path of the executable, if it exists"""
-
-    def is_exe(fpath: str) -> bool:
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
-    fpath, _ = os.path.split(program)
-    if fpath:
-        if is_exe(program):
-            return program
-    else:
-        for path in os.environ["PATH"].split(os.pathsep):
-            exe_file = os.path.join(path, program)
-            if is_exe(exe_file):
-                return exe_file
-
-    return None
 
 
 def xlate(data: Any, is_int: bool = False) -> Any:
@@ -148,17 +130,17 @@ def remove_articles(text: str) -> str:
     return new_text
 
 
-def sanitize_title(text: str) -> str:
+def sanitize_title(text: str, basic: bool = False) -> str:
     # normalize unicode and convert to ascii. Does not work for everything eg ½ to 1⁄2 not 1/2
-    # this will probably cause issues with titles in other character sets e.g. chinese, japanese
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = unicodedata.normalize("NFKD", text)
     # comicvine keeps apostrophes a part of the word
     text = text.replace("'", "")
     text = text.replace('"', "")
-    # comicvine ignores punctuation and accents
-    text = re.sub(r"[^A-Za-z0-9]+", " ", text)
-    # remove extra space and articles and all lower case
-    text = remove_articles(text).lower().strip()
+    if not basic:
+        # comicvine ignores punctuation and accents, TODO: only remove punctuation accents and similar
+        text = re.sub(r"[^A-Za-z0-9]+", " ", text)
+        # remove extra space and articles and all lower case
+        text = remove_articles(text).casefold().strip()
 
     return text
 
@@ -173,9 +155,9 @@ def unique_file(file_name: str) -> str:
         counter += 1
 
 
-languages: dict[Optional[str], Optional[str]] = defaultdict(lambda: None)
+languages: dict[str | None, str | None] = defaultdict(lambda: None)
 
-countries: dict[Optional[str], Optional[str]] = defaultdict(lambda: None)
+countries: dict[str | None, str | None] = defaultdict(lambda: None)
 
 for c in pycountry.countries:
     if "alpha_2" in c._fields:
@@ -186,11 +168,11 @@ for lng in pycountry.languages:
         languages[lng.alpha_2] = lng.name
 
 
-def get_language_from_iso(iso: Optional[str]) -> Optional[str]:
+def get_language_from_iso(iso: str | None) -> str | None:
     return languages[iso]
 
 
-def get_language(string: Optional[str]) -> Optional[str]:
+def get_language(string: str | None) -> str | None:
     if string is None:
         return None
 
@@ -199,7 +181,7 @@ def get_language(string: Optional[str]) -> Optional[str]:
     if lang is None:
         try:
             return str(pycountry.languages.lookup(string).name)
-        except:
+        except LookupError:
             return None
     return lang
 
@@ -217,7 +199,7 @@ def get_publisher(publisher: str) -> tuple[str, str]:
     return (imprint, publisher)
 
 
-def update_publishers(new_publishers: dict[str, dict[str, str]]) -> None:
+def update_publishers(new_publishers: Mapping[str, Mapping[str, str]]) -> None:
     for publisher in new_publishers:
         if publisher in publishers:
             publishers[publisher].update(new_publishers[publisher])
@@ -228,12 +210,12 @@ def update_publishers(new_publishers: dict[str, dict[str, str]]) -> None:
 class ImprintDict(dict):
     """
     ImprintDict takes a publisher and a dict or mapping of lowercased
-    imprint names to the proper imprint name. Retreiving a value from an
+    imprint names to the proper imprint name. Retrieving a value from an
     ImprintDict returns a tuple of (imprint, publisher, keyExists).
     if the key does not exist the key is returned as the publisher unchanged
     """
 
-    def __init__(self, publisher, mapping=(), **kwargs):
+    def __init__(self, publisher: str, mapping=(), **kwargs) -> None:
         super().__init__(mapping, **kwargs)
         self.publisher = publisher
 
@@ -249,7 +231,7 @@ class ImprintDict(dict):
         else:
             return (item, self.publisher, True)
 
-    def copy(self) -> "ImprintDict":
+    def copy(self) -> ImprintDict:
         return ImprintDict(self.publisher, super().copy())
 
 

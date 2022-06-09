@@ -1,21 +1,21 @@
 """A python app to (automatically) tag comic archives"""
-
+#
 # Copyright 2012-2014 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
 import json
-import logging
 import logging.handlers
 import os
 import pathlib
@@ -24,7 +24,6 @@ import signal
 import sys
 import traceback
 import types
-from typing import Optional
 
 import pkg_resources
 
@@ -32,11 +31,12 @@ from comicapi import utils
 from comictaggerlib import cli
 from comictaggerlib.comicvinetalker import ComicVineTalker
 from comictaggerlib.ctversion import version
-from comictaggerlib.options import Options
+from comictaggerlib.options import parse_cmd_line
 from comictaggerlib.settings import ComicTaggerSettings
 
 logger = logging.getLogger("comictagger")
 logging.getLogger("comicapi").setLevel(logging.DEBUG)
+logging.getLogger("comictaggerlib").setLevel(logging.DEBUG)
 logger.setLevel(logging.DEBUG)
 
 try:
@@ -49,7 +49,7 @@ try:
         """
         if QtWidgets.QApplication.instance() is not None:
             errorbox = QtWidgets.QMessageBox()
-            errorbox.setText(f"Oops. An unexpected error occured:\n{log_msg}")
+            errorbox.setText(f"Oops. An unexpected error occurred:\n{log_msg}")
             errorbox.exec()
             QtWidgets.QApplication.exit(1)
         else:
@@ -68,7 +68,7 @@ try:
             self._exception_caught.connect(show_exception_box)
 
         def exception_hook(
-            self, exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Optional[types.TracebackType]
+            self, exc_type: type[BaseException], exc_value: BaseException, exc_traceback: types.TracebackType | None
         ) -> None:
             """Function handling uncaught exceptions.
             It is triggered each time an uncaught exception occurs.
@@ -111,8 +111,7 @@ def update_publishers() -> None:
 
 
 def ctmain() -> None:
-    opts = Options()
-    opts.parse_cmd_line_args()
+    opts = parse_cmd_line()
     SETTINGS = ComicTaggerSettings(opts.config_path)
 
     os.makedirs(ComicTaggerSettings.get_settings_folder() / "logs", exist_ok=True)
@@ -138,8 +137,8 @@ def ctmain() -> None:
         if opts.cv_api_key != SETTINGS.cv_api_key:
             SETTINGS.cv_api_key = opts.cv_api_key
             SETTINGS.save()
-    if opts.only_set_key:
-        print("Key set")
+    if opts.only_set_cv_key:
+        print("Key set")  # noqa: T201
         return
 
     ComicVineTalker.api_key = SETTINGS.cv_api_key
@@ -162,13 +161,12 @@ def ctmain() -> None:
 
     if not qt_available and not opts.no_gui:
         opts.no_gui = True
-        print("PyQt5 is not available. ComicTagger is limited to command-line mode.")
-        logger.info("PyQt5 is not available. ComicTagger is limited to command-line mode.")
+        logger.warn("PyQt5 is not available. ComicTagger is limited to command-line mode.")
 
     if opts.no_gui:
         try:
             cli.cli_mode(opts, SETTINGS)
-        except:
+        except Exception:
             logger.exception("CLI mode failed")
     else:
         os.environ["QtWidgets.QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
@@ -187,12 +185,12 @@ def ctmain() -> None:
             import ctypes
 
             myappid = "comictagger"  # arbitrary string
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)  # type: ignore[attr-defined]
             # force close of console window
             swp_hidewindow = 0x0080
-            console_wnd = ctypes.windll.kernel32.GetConsoleWindow()
+            console_wnd = ctypes.windll.kernel32.GetConsoleWindow()  # type: ignore[attr-defined]
             if console_wnd != 0:
-                ctypes.windll.user32.SetWindowPos(console_wnd, None, 0, 0, 0, 0, swp_hidewindow)
+                ctypes.windll.user32.SetWindowPos(console_wnd, None, 0, 0, 0, 0, swp_hidewindow)  # type: ignore[attr-defined]
 
         if platform.system() != "Linux":
             img = QtGui.QPixmap(ComicTaggerSettings.get_graphic("tags.png"))
@@ -203,7 +201,7 @@ def ctmain() -> None:
             QtWidgets.QApplication.processEvents()
 
         try:
-            tagger_window = TaggerWindow(opts.file_list, SETTINGS, opts=opts)
+            tagger_window = TaggerWindow(opts.files, SETTINGS, opts=opts)
             tagger_window.setWindowIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("app.png")))
             tagger_window.show()
 
