@@ -1,19 +1,21 @@
 """The main window of the ComicTagger app"""
-
+#
 # Copyright 2012-2014 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
+import argparse
 import json
 import logging
 import operator
@@ -24,7 +26,7 @@ import pprint
 import re
 import sys
 import webbrowser
-from typing import Any, Callable, List, Optional, Union, cast
+from typing import Any, Callable, cast
 from urllib.parse import urlparse
 
 import natsort
@@ -38,6 +40,7 @@ from comicapi.filenameparser import FileNameParser
 from comicapi.genericmetadata import GenericMetadata
 from comicapi.issuestring import IssueString
 from comictaggerlib import ctversion
+from comictaggerlib.applicationlogwindow import ApplicationLogWindow, QTextEditLogger
 from comictaggerlib.autotagmatchwindow import AutoTagMatchWindow
 from comictaggerlib.autotagprogresswindow import AutoTagProgressWindow
 from comictaggerlib.autotagstartwindow import AutoTagStartWindow
@@ -51,7 +54,6 @@ from comictaggerlib.fileselectionlist import FileInfo, FileSelectionList
 from comictaggerlib.issueidentifier import IssueIdentifier
 from comictaggerlib.logwindow import LogWindow
 from comictaggerlib.optionalmsgdialog import OptionalMessageDialog
-from comictaggerlib.options import Options
 from comictaggerlib.pagebrowser import PageBrowserWindow
 from comictaggerlib.pagelisteditor import PageListEditor
 from comictaggerlib.renamewindow import RenameWindow
@@ -77,20 +79,21 @@ class TaggerWindow(QtWidgets.QMainWindow):
         self,
         file_list: list[str],
         settings: ComicTaggerSettings,
-        parent: Optional[QtWidgets.QWidget] = None,
-        opts: Optional[Options] = None,
+        parent: QtWidgets.QWidget | None = None,
+        opts: argparse.Namespace | None = None,
     ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ComicTaggerSettings.get_ui_file("taggerwindow.ui"), self)
         self.settings = settings
+        self.log_window = self.setup_logger()
 
         # prevent multiple instances
         socket = QtNetwork.QLocalSocket(self)
         socket.connectToServer(settings.install_id)
         alive = socket.waitForConnected(3000)
         if alive:
-            print(f"Another application with key [{settings.install_id}] is already running")
+            logger.setLevel(logging.INFO)
             logger.info("Another application with key [%s] is already running", settings.install_id)
             # send file list to other instance
             if file_list:
@@ -150,10 +153,10 @@ class TaggerWindow(QtWidgets.QMainWindow):
 
         self.setWindowIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("app.png")))
         # TODO: this needs to be looked at
-        if opts is not None and opts.data_style is not None:
+        if opts is not None and opts.type is not None:
             # respect the command line option tag type
-            settings.last_selected_save_data_style = opts.data_style
-            settings.last_selected_load_data_style = opts.data_style
+            settings.last_selected_save_data_style = opts.type
+            settings.last_selected_load_data_style = opts.type
 
         self.save_data_style = settings.last_selected_save_data_style
         self.load_data_style = settings.last_selected_load_data_style
@@ -163,14 +166,14 @@ class TaggerWindow(QtWidgets.QMainWindow):
         self.statusBar()
         self.populate_combo_boxes()
 
-        self.page_browser: Optional[PageBrowserWindow] = None
-        self.comic_archive: Optional[ComicArchive] = None
+        self.page_browser: PageBrowserWindow | None = None
+        self.comic_archive: ComicArchive | None = None
         self.dirty_flag = False
         self.droppedFile = None
         self.page_loader = None
         self.droppedFiles: list[str] = []
         self.metadata = GenericMetadata()
-        self.atprogdialog: Optional[AutoTagProgressWindow] = None
+        self.atprogdialog: AutoTagProgressWindow | None = None
         self.reset_app()
 
         # set up some basic field validators
@@ -262,6 +265,20 @@ Have fun!
     def sigint_handler(self, *args: Any) -> None:
         # defer the actual close in the app loop thread
         QtCore.QTimer.singleShot(200, lambda: execute(self.close))
+
+    def setup_logger(self) -> ApplicationLogWindow:
+        try:
+            current_logs = (ComicTaggerSettings.get_settings_folder() / "logs" / "ComicTagger.log").read_text("utf-8")
+        except Exception:
+            current_logs = ""
+        root_logger = logging.getLogger()
+        qapplogwindow = ApplicationLogWindow(
+            QTextEditLogger(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"), logging.DEBUG),
+            parent=self,
+        )
+        qapplogwindow.textEdit.append(current_logs.strip())
+        root_logger.addHandler(qapplogwindow.log_handler)
+        return qapplogwindow
 
     def reset_app(self) -> None:
 
@@ -370,6 +387,8 @@ Have fun!
         self.actionAutoIdentify.setShortcut("Ctrl+I")
         self.actionAutoIdentify.triggered.connect(self.auto_identify_search)
 
+        self.actionLiteralSearch.triggered.connect(self.literal_search)
+
         self.actionCoverGallery.setShortcut("Ctrl+G")
         self.actionCoverGallery.setStatusTip("Search online for covers and alternates, and save to archive")
         self.actionCoverGallery.triggered.connect(self.save_cover_gallery)
@@ -395,6 +414,9 @@ Have fun!
         self.actionPageBrowser.setShortcut("Ctrl+P")
         self.actionPageBrowser.setStatusTip("Show the page browser")
         self.actionPageBrowser.triggered.connect(self.show_page_browser)
+        self.actionLogWindow.setShortcut("Ctrl+Shift+L")
+        self.actionLogWindow.setStatusTip("Show the log window")
+        self.actionLogWindow.triggered.connect(self.log_window.show)
 
         # Help Menu
         self.actionAbout.setStatusTip("Show the " + self.appName + " info")
@@ -413,6 +435,7 @@ Have fun!
         self.actionParse_Filename.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("parse.png")))
         self.actionParse_Filename_split_words.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("parse.png")))
         self.actionSearchOnline.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
+        self.actionLiteralSearch.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
         self.actionAutoIdentify.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("auto.png")))
         self.actionAutoTag.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("autotag.png")))
         self.actionAutoImprint.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("autotag.png")))
@@ -425,6 +448,7 @@ Have fun!
         self.toolBar.addAction(self.actionLoadFolder)
         self.toolBar.addAction(self.actionWrite_Tags)
         self.toolBar.addAction(self.actionSearchOnline)
+        self.toolBar.addAction(self.actionLiteralSearch)
         self.toolBar.addAction(self.actionAutoIdentify)
         self.toolBar.addAction(self.actionAutoTag)
         self.toolBar.addAction(self.actionClearEntryForm)
@@ -457,10 +481,13 @@ Have fun!
             EW = ExportWindow(
                 self,
                 self.settings,
-                f"""You have selected {rar_count} archive(s) to export  to Zip format.  New archives will be created in the same folder as the original.
+                (
+                    f"You have selected {rar_count} archive(s) to export  to Zip format. "
+                    """ New archives will be created in the same folder as the original.
 
-Please choose options below, and select OK.
-""",
+   Please choose options below, and select OK.
+   """
+                ),
             )
             EW.adjustSize()
             EW.setModal(True)
@@ -550,7 +577,7 @@ Please choose options below, and select OK.
         license_name = "Apache License 2.0"
 
         msg_box = QtWidgets.QMessageBox()
-        msg_box.setWindowTitle(("About " + self.appName))
+        msg_box.setWindowTitle("About " + self.appName)
         msg_box.setTextFormat(QtCore.Qt.TextFormat.RichText)
         msg_box.setIconPixmap(QtGui.QPixmap(ComicTaggerSettings.get_graphic("about.png")))
         msg_box.setText(
@@ -753,8 +780,7 @@ Please choose options below, and select OK.
         if isinstance(widget, QtWidgets.QCheckBox):
             widget.setChecked(False)
         if isinstance(widget, QtWidgets.QTableWidget):
-            while widget.rowCount() > 0:
-                widget.removeRow(0)
+            widget.setRowCount(0)
 
         # recursive call on children
         for child in widget.children():
@@ -763,7 +789,7 @@ Please choose options below, and select OK.
     # Copy all of the metadata object into the form.
     # Merging of metadata should be done via the overlay function
     def metadata_to_form(self) -> None:
-        def assign_text(field: Union[QtWidgets.QLineEdit, QtWidgets.QTextEdit], value: Any) -> None:
+        def assign_text(field: QtWidgets.QLineEdit | QtWidgets.QTextEdit, value: Any) -> None:
             if value is not None:
                 field.setText(str(value))
 
@@ -797,8 +823,8 @@ Please choose options below, and select OK.
         assign_text(self.teLocations, md.locations)
 
         try:
-            self.dsbCommunityRating.setValue(md.community_rating)
-        except:
+            self.dsbCommunityRating.setValue(md.community_rating or 0.0)
+        except ValueError:
             self.dsbCommunityRating.setValue(0.0)
 
         if md.format is not None and md.format != "":
@@ -842,8 +868,7 @@ Please choose options below, and select OK.
 
         self.teTags.setText(utils.list_to_string(md.tags))
 
-        while self.twCredits.rowCount() > 0:
-            self.twCredits.removeRow(0)
+        self.twCredits.setRowCount(0)
 
         if md.credits is not None and len(md.credits) != 0:
             self.twCredits.setSortingEnabled(False)
@@ -884,11 +909,9 @@ Please choose options below, and select OK.
         self.update_credit_primary_flag(row, primary_flag)
 
     def is_dupe_credit(self, role: str, name: str) -> bool:
-        r = 0
-        while r < self.twCredits.rowCount():
+        for r in range(self.twCredits.rowCount()):
             if self.twCredits.item(r, 1).text() == role and self.twCredits.item(r, 2).text() == name:
                 return True
-            r = r + 1
 
         return False
 
@@ -950,14 +973,12 @@ Please choose options below, and select OK.
 
         # get the credits from the table
         md.credits = []
-        row = 0
-        while row < self.twCredits.rowCount():
+        for row in range(self.twCredits.rowCount()):
             role = self.twCredits.item(row, 1).text()
             name = self.twCredits.item(row, 2).text()
             primary_flag = self.twCredits.item(row, 0).text() != ""
 
             md.add_credit(name, role, bool(primary_flag))
-            row += 1
 
         md.pages = self.page_list_editor.get_page_list()
         self.metadata = md
@@ -1137,8 +1158,10 @@ Please choose options below, and select OK.
                 self, self.tr("Web Link"), self.tr("Process failed to add web link to cover gallery.")
             )
 
-    def query_online(self, autoselect: bool = False) -> None:
+    def literal_search(self):
+        self.query_online(autoselect=False, literal=True)
 
+    def query_online(self, autoselect: bool = False, literal: bool = False) -> None:
         issue_number = str(self.leIssueNum.text()).strip()
 
         if autoselect and issue_number == "":
@@ -1168,6 +1191,7 @@ Please choose options below, and select OK.
             cast(ComicArchive, self.comic_archive),
             self.settings,
             autoselect,
+            literal,
         )
 
         selector.setWindowTitle(f"Search: '{series_name}' - Select Series")
@@ -1273,22 +1297,20 @@ Please choose options below, and select OK.
         if self.save_data_style == MetaDataStyle.CIX:
             # loop over credit table, mark selected rows
             r = 0
-            while r < self.twCredits.rowCount():
+            for r in range(self.twCredits.rowCount()):
                 if str(self.twCredits.item(r, 1).text()).lower() not in cix_credits:
                     self.twCredits.item(r, 1).setBackground(inactive_brush)
                 else:
                     self.twCredits.item(r, 1).setBackground(active_brush)
                 # turn off entire primary column
                 self.twCredits.item(r, 0).setBackground(inactive_brush)
-                r = r + 1
 
         if self.save_data_style == MetaDataStyle.CBI:
             # loop over credit table, make all active color
             r = 0
-            while r < self.twCredits.rowCount():
+            for r in range(self.twCredits.rowCount()):
                 self.twCredits.item(r, 0).setBackground(active_brush)
                 self.twCredits.item(r, 1).setBackground(active_brush)
-                r = r + 1
 
     def update_style_tweaks(self) -> None:
         # depending on the current data style, certain fields are disabled
@@ -1389,10 +1411,9 @@ Please choose options below, and select OK.
         # otherwise, we need to check for, and clear, other primaries with same role
         role = str(self.twCredits.item(row, 1).text())
         r = 0
-        while r < self.twCredits.rowCount():
+        for r in range(self.twCredits.rowCount()):
             if self.twCredits.item(r, 0).text() != "" and str(self.twCredits.item(r, 1).text()).lower() == role.lower():
                 self.twCredits.item(r, 0).setText("")
-            r = r + 1
 
         # Now set our new primary
         self.twCredits.item(row, 0).setText("Yes")
@@ -1473,7 +1494,7 @@ Please choose options below, and select OK.
             try:
                 result = urlparse(web_link)
                 valid = all([result.scheme in ["http", "https"], result.netloc])
-            except:
+            except ValueError:
                 pass
 
             if valid:
@@ -1823,7 +1844,11 @@ Please choose options below, and select OK.
         ii = IssueIdentifier(ca, self.settings)
 
         # read in metadata, and parse file name if not there
-        md = ca.read_metadata(self.save_data_style)
+        try:
+            md = ca.read_metadata(self.save_data_style)
+        except Exception as e:
+            md = GenericMetadata()
+            logger.error("Failed to load metadata for %s: %s", ca.path, e)
         if md.is_empty:
             md = ca.metadata_from_filename(
                 self.settings.complicated_parser,
@@ -1860,7 +1885,7 @@ Please choose options below, and select OK.
             ii.set_cover_url_callback(self.atprogdialog.set_test_image)
         ii.set_name_length_delta_threshold(dlg.name_length_match_tolerance)
 
-        matches: List[IssueResult] = ii.search()
+        matches: list[IssueResult] = ii.search()
 
         result = ii.search_result
 
@@ -1942,10 +1967,10 @@ Please choose options below, and select OK.
         atstartdlg = AutoTagStartWindow(
             self,
             self.settings,
-            f"""You have selected {len(ca_list)} archive(s) to automatically identify and write {MetaDataStyle.name[style]} tags to.
-
-Please choose options below, and select OK to Auto-Tag.
-""",
+            (
+                f"You have selected {len(ca_list)} archive(s) to automatically identify and write {MetaDataStyle.name[style]} tags to."
+                "\n\nPlease choose options below, and select OK to Auto-Tag."
+            ),
         )
 
         atstartdlg.adjustSize()
@@ -1970,7 +1995,11 @@ Please choose options below, and select OK to Auto-Tag.
             self.auto_tag_log("==========================================================================\n")
             self.auto_tag_log(f"Auto-Tagging {prog_idx + 1} of {len(ca_list)}\n")
             self.auto_tag_log(f"{ca.path}\n")
-            cover_idx = ca.read_metadata(style).get_cover_page_index_list()[0]
+            try:
+                cover_idx = ca.read_metadata(style).get_cover_page_index_list()[0]
+            except Exception as e:
+                cover_idx = 0
+                logger.error("Failed to load metadata for %s: %s", ca.path, e)
             image_data = ca.get_page(cover_idx)
             self.atprogdialog.set_archive_image(image_data)
             self.atprogdialog.set_test_image(bytes())
@@ -2049,6 +2078,11 @@ Please choose options below, and select OK to Auto-Tag.
             QtWidgets.QMessageBox.information(self, self.tr("Auto-Tag Summary"), self.tr(summary))
         logger.info(summary)
 
+    def exception(self, message):
+        errorbox = QtWidgets.QMessageBox()
+        errorbox.setText(message)
+        errorbox.exec()
+
     def dirty_flag_verification(self, title: str, desc: str) -> bool:
         if self.dirty_flag:
             reply = QtWidgets.QMessageBox.question(
@@ -2124,7 +2158,7 @@ Please choose options below, and select OK to Auto-Tag.
         webbrowser.open("https://github.com/comictagger/comictagger/issues")
 
     def show_forum(self) -> None:
-        webbrowser.open("http://comictagger.forumotion.com/")
+        webbrowser.open("https://github.com/comictagger/comictagger/discussions")
 
     def front_cover_changed(self) -> None:
         self.metadata.pages = self.page_list_editor.get_page_list()
@@ -2182,8 +2216,11 @@ Please choose options below, and select OK to Auto-Tag.
 
         self.settings.last_opened_folder = os.path.abspath(os.path.split(comic_archive.path)[0])
         self.comic_archive = comic_archive
-        self.metadata = self.comic_archive.read_metadata(self.load_data_style)
-        if self.metadata is None:
+        try:
+            self.metadata = self.comic_archive.read_metadata(self.load_data_style)
+        except Exception as e:
+            logger.error("Failed to load metadata for %s: %s", self.comic_archive.path, e)
+            self.exception(f"Failed to load metadata for {self.comic_archive.path}:\n\n{e}")
             self.metadata = GenericMetadata()
 
         self.actual_load_current_archive()
@@ -2199,7 +2236,7 @@ Please choose options below, and select OK to Auto-Tag.
         new_w = self.scrollArea.width() - scrollbar_w - 5
         self.scrollAreaWidgetContents.resize(new_w, self.scrollAreaWidgetContents.height())
 
-    def resizeEvent(self, ev: Optional[QtGui.QResizeEvent]) -> None:
+    def resizeEvent(self, ev: QtGui.QResizeEvent | None) -> None:
         self.splitter_moved_event(0, 0)
 
     def tab_changed(self, idx: int) -> None:
@@ -2274,7 +2311,7 @@ Please choose options below, and select OK to Auto-Tag.
             self.setWindowFlags(flags)
             self.show()
 
-    def auto_imprint(self):
+    def auto_imprint(self) -> None:
         self.form_to_metadata()
         self.metadata.fix_publisher()
         self.metadata_to_form()

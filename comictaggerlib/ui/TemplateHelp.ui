@@ -33,7 +33,7 @@
      </property>
      <property name="html">
       <string>&lt;html&gt;
-	&lt;head&gt;
+     &lt;head&gt;
      &lt;style&gt;
 table {
   font-family: arial, sans-serif;
@@ -52,12 +52,12 @@ tr:nth-child(even) {
 }
 &lt;/style&gt;
      &lt;/head&gt;
-	&lt;body&gt;
-		&lt;h1 style="text-align: center"&gt;Template help&lt;/h1&gt;
-		&lt;p&gt;The template uses Python format strings, in the simplest use it replaces the field (e.g. {issue}) with the value for that particular comic (e.g. 1) for advanced formatting please reference the
+     &lt;body&gt;
+          &lt;h1 style="text-align: center"&gt;Template help&lt;/h1&gt;
+          &lt;p&gt;The template uses Python format strings, in the simplest use it replaces the field (e.g. {issue}) with the value for that particular comic (e.g. 1) for advanced formatting please reference the
 
-			&lt;a href="https://docs.python.org/3/library/string.html#format-string-syntax"&gt;Python 3 documentation&lt;/a&gt;&lt;/p&gt;
-		Accepts the following variables:
+               &lt;a href="https://docs.python.org/3/library/string.html#format-string-syntax"&gt;Python 3 documentation&lt;/a&gt;&lt;/p&gt;
+          Accepts the following variables:
 &lt;table&gt;
      &lt;tr&gt;
           &lt;th&gt;Tag name&lt;/th&gt;
@@ -100,8 +100,15 @@ tr:nth-child(even) {
      &lt;tr&gt;&lt;td&gt;{teams}&lt;/td&gt;&lt;td&gt;string&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{locations}&lt;/td&gt;&lt;td&gt;string&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{credits}&lt;/td&gt;&lt;td&gt;list of dict({&apos;role&apos;: string, &apos;person&apos;: string, &apos;primary&apos;: boolean})&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{writer}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{penciller}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{inker}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{colorist}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{letterer}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{cover artist}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{editor}&lt;/td&gt;&lt;td&gt;(string)&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{tags}&lt;/td&gt;&lt;td&gt;list of str&lt;/td&gt;&lt;/tr&gt;
-     &lt;tr&gt;&lt;td&gt;{pages}&lt;/td&gt;&lt;td&gt;list of dict({&apos;Image&apos;: string(int), &apos;Type&apos;: string})&lt;/td&gt;&lt;/tr&gt;
+     &lt;tr&gt;&lt;td&gt;{pages}&lt;/td&gt;&lt;td&gt;list of dict({&apos;Image&apos;: string(int), &apos;Type&apos;: string, &apos;Bookmark&apos;: string, &apos;DoublePage&apos;: string})&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{price}&lt;/td&gt;&lt;td&gt;float&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{is_version_of}&lt;/td&gt;&lt;td&gt;string&lt;/td&gt;&lt;/tr&gt;
      &lt;tr&gt;&lt;td&gt;{rights}&lt;/td&gt;&lt;td&gt;string&lt;/td&gt;&lt;/tr&gt;
@@ -119,7 +126,7 @@ Spider-Geddon 1 (2018)
 Spider-Geddon #1 - New Players; Check In
 
 &lt;/pre&gt;
-	&lt;/body&gt;
+     &lt;/body&gt;
 &lt;/html&gt;</string></property>
      <property name="textInteractionFlags">
       <set>Qt::TextBrowserInteraction</set>

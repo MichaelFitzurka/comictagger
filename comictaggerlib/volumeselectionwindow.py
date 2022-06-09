@@ -1,21 +1,23 @@
 """A PyQT4 dialog to select specific series/volume from list"""
-
+#
 # Copyright 2012-2014 Anthony Beville
-
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
 
+import itertools
 import logging
-from typing import Optional
+from collections import deque
 
 from PyQt5 import QtCore, QtWidgets, uic
 from PyQt5.QtCore import pyqtSignal
@@ -40,20 +42,21 @@ class SearchThread(QtCore.QThread):
     searchComplete = pyqtSignal()
     progressUpdate = pyqtSignal(int, int)
 
-    def __init__(self, series_name: str, refresh: bool) -> None:
+    def __init__(self, series_name: str, refresh: bool, literal: bool = False) -> None:
         QtCore.QThread.__init__(self)
         self.series_name = series_name
         self.refresh: bool = refresh
-        self.error_code: Optional[int] = None
+        self.error_code: int | None = None
         self.cv_error = False
         self.cv_search_results: list[CVVolumeResults] = []
+        self.literal = literal
 
     def run(self) -> None:
         comic_vine = ComicVineTalker()
         try:
             self.cv_error = False
             self.cv_search_results = comic_vine.search_for_series(
-                self.series_name, callback=self.prog_callback, refresh_cache=self.refresh
+                self.series_name, self.prog_callback, self.refresh, self.literal
             )
         except ComicVineTalkerException as e:
             self.cv_search_results = []
@@ -95,12 +98,13 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         parent: QtWidgets.QWidget,
         series_name: str,
         issue_number: str,
-        year: Optional[int],
+        year: int | None,
         issue_count: int,
         cover_index_list: list[int],
         comic_archive: ComicArchive,
         settings: ComicTaggerSettings,
         autoselect: bool = False,
+        literal: bool = False,
     ) -> None:
         super().__init__(parent)
 
@@ -136,11 +140,12 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.immediate_autoselect = autoselect
         self.cover_index_list = cover_index_list
         self.cv_search_results: list[CVVolumeResults] = []
-        self.ii: Optional[IssueIdentifier] = None
-        self.iddialog: Optional[IDProgressWindow] = None
-        self.id_thread: Optional[IdentifyThread] = None
-        self.progdialog: Optional[QtWidgets.QProgressDialog] = None
-        self.search_thread: Optional[SearchThread] = None
+        self.literal = literal
+        self.ii: IssueIdentifier | None = None
+        self.iddialog: IDProgressWindow | None = None
+        self.id_thread: IdentifyThread | None = None
+        self.progdialog: QtWidgets.QProgressDialog | None = None
+        self.search_thread: SearchThread | None = None
 
         self.use_filter = self.settings.always_use_publisher_filter
 
@@ -159,7 +164,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.twList.selectRow(0)
 
     def update_buttons(self) -> None:
-        enabled = bool(self.cv_search_results and len(self.cv_search_results) > 0)
+        enabled = bool(self.cv_search_results)
 
         self.btnRequery.setEnabled(enabled)
         self.btnIssues.setEnabled(enabled)
@@ -213,7 +218,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
 
     def log_id_output(self, text: str) -> None:
         if self.iddialog is not None:
-            print(text, end=" ")
+            print(text, end=" ")  # noqa: T201
             self.iddialog.textEdit.ensureCursorVisible()
             self.iddialog.textEdit.insertPlainText(text)
 
@@ -240,7 +245,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Auto-Select Result",
-                    " Found a match, but cover doesn't seem the same.  Verify before commiting!",
+                    " Found a match, but cover doesn't seem the same.  Verify before committing!",
                 )
                 found_match = matches[0]
             elif result == self.ii.result_found_match_but_not_first_page:
@@ -311,7 +316,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
         self.progdialog.canceled.connect(self.search_canceled)
         self.progdialog.setModal(True)
         self.progdialog.setMinimumDuration(300)
-        self.search_thread = SearchThread(self.series_name, refresh)
+        self.search_thread = SearchThread(self.series_name, refresh, self.literal)
         self.search_thread.searchComplete.connect(self.search_complete)
         self.search_thread.progressUpdate.connect(self.search_progress_update)
         self.search_thread.start()
@@ -361,11 +366,11 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
                             self.cv_search_results,
                         )
                     )
-                except:
-                    logger.exception("bad data error filtering filter publishers")
+                except Exception:
+                    logger.exception("bad data error filtering publishers")
 
             # pre sort the data - so that we can put exact matches first afterwards
-            # compare as str incase extra chars ie. '1976?'
+            # compare as str in case extra chars ie. '1976?'
             # - missing (none) values being converted to 'None' - consistent with prior behaviour in v1.2.3
             # sort by start_year if set
             if self.settings.sort_series_by_year:
@@ -375,36 +380,46 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
                         key=lambda i: (str(i["start_year"]), str(i["count_of_issues"])),
                         reverse=True,
                     )
-                except:
+                except Exception:
                     logger.exception("bad data error sorting results by start_year,count_of_issues")
             else:
                 try:
                     self.cv_search_results = sorted(
                         self.cv_search_results, key=lambda i: str(i["count_of_issues"]), reverse=True
                     )
-                except:
+                except Exception:
                     logger.exception("bad data error sorting results by count_of_issues")
 
             # move sanitized matches to the front
             if self.settings.exact_series_matches_first:
                 try:
-                    sanitized = utils.sanitize_title(self.series_name)
-                    exact_matches = list(
-                        filter(lambda d: utils.sanitize_title(str(d["name"])) in sanitized, self.cv_search_results)
-                    )
-                    non_matches = list(
-                        filter(lambda d: utils.sanitize_title(str(d["name"])) not in sanitized, self.cv_search_results)
-                    )
-                    self.cv_search_results = exact_matches + non_matches
-                except:
+                    sanitized = utils.sanitize_title(self.series_name, False).casefold()
+                    sanitized_no_articles = utils.sanitize_title(self.series_name, True).casefold()
+
+                    deques: list[deque[CVVolumeResults]] = [deque(), deque(), deque()]
+
+                    def categorize(result):
+                        # We don't remove anything on this one so that we only get exact matches
+                        if utils.sanitize_title(result["name"], True).casefold() == sanitized_no_articles:
+                            return 0
+
+                        # this ensures that 'The Joker' is near the top even if you search 'Joker'
+                        if utils.sanitize_title(result["name"], False).casefold() in sanitized:
+                            return 1
+                        return 2
+
+                    for comic in self.cv_search_results:
+                        deques[categorize(comic)].append(comic)
+                    logger.info("Length: %d, %d, %d", len(deques[0]), len(deques[1]), len(deques[2]))
+                    self.cv_search_results = list(itertools.chain.from_iterable(deques))
+                except Exception:
                     logger.exception("bad data error filtering exact/near matches")
 
             self.update_buttons()
 
             self.twList.setSortingEnabled(False)
 
-            while self.twList.rowCount() > 0:
-                self.twList.removeRow(0)
+            self.twList.setRowCount(0)
 
             row = 0
             for record in self.cv_search_results:
@@ -450,12 +465,12 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
             self.twList.selectRow(0)
             self.twList.resizeColumnsToContents()
 
-            if len(self.cv_search_results) == 0:
+            if not self.cv_search_results:
                 QtCore.QCoreApplication.processEvents()
                 QtWidgets.QMessageBox.information(self, "Search Result", "No matches found!")
                 QtCore.QTimer.singleShot(200, self.close_me)
 
-            if self.immediate_autoselect and len(self.cv_search_results) > 0:
+            if self.immediate_autoselect and self.cv_search_results:
                 # defer the immediate autoselect so this dialog has time to pop up
                 QtCore.QCoreApplication.processEvents()
                 QtCore.QTimer.singleShot(10, self.do_immediate_autoselect)
@@ -467,7 +482,7 @@ class VolumeSelectionWindow(QtWidgets.QDialog):
     def cell_double_clicked(self, r: int, c: int) -> None:
         self.show_issues()
 
-    def current_item_changed(self, curr: Optional[QtCore.QModelIndex], prev: Optional[QtCore.QModelIndex]) -> None:
+    def current_item_changed(self, curr: QtCore.QModelIndex | None, prev: QtCore.QModelIndex | None) -> None:
 
         if curr is None:
             return
