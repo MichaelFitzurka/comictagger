@@ -182,7 +182,7 @@ class ComicInfoXml:
             page_node = ET.SubElement(pages_node, "Page")
             page_node.attrib = OrderedDict(sorted((k, str(v)) for k, v in page_dict.items()))
 
-        assign("CommunityRating", md.community_rating)
+        assign("CommunityRating", md.critical_rating)
 
         ET.indent(root)
 
