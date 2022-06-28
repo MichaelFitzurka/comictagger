@@ -234,7 +234,7 @@ class ComicInfoXml:
         md.story_arc_number = utils.xlate(get("StoryArcNum"))
         md.series_group = utils.xlate(get("SeriesGroup"))
         md.maturity_rating = utils.xlate(get("AgeRating"))
-        md.community_rating = utils.xlate(get("CommunityRating"))
+        md.critical_rating = utils.xlate(get("CommunityRating"), is_float=True)
 
         tmp = utils.xlate(get("BlackAndWhite"))
         if tmp is not None and tmp.lower() in ["yes", "true", "1"]:
