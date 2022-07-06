@@ -21,6 +21,7 @@ possible, however lossy it might be
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 from comicapi import utils
@@ -65,6 +66,7 @@ class CreditMetadata(TypedDict):
     primary: bool
 
 
+@dataclass
 class GenericMetadata:
     writer_synonyms = ["writer", "plotter", "scripter"]
     penciller_synonyms = ["artist", "penciller", "penciler", "breakdowns"]
@@ -74,60 +76,64 @@ class GenericMetadata:
     cover_synonyms = ["cover", "covers", "coverartist", "cover artist"]
     editor_synonyms = ["editor"]
 
-    def __init__(self) -> None:
+    is_empty: bool = True
+    tag_origin: str | None = None
 
-        self.is_empty: bool = True
-        self.tag_origin: str | None = None
+    series: str | None = None
+    issue: str | None = None
+    title: str | None = None
+    publisher: str | None = None
+    month: int | None = None
+    year: int | None = None
+    day: int | None = None
+    issue_count: int | None = None
+    volume: int | None = None
+    genre: str | None = None
+    language: str | None = None  # 2 letter iso code
+    comments: str | None = None  # use same way as Summary in CIX
 
-        self.series: str | None = None
-        self.issue: str | None = None
-        self.title: str | None = None
-        self.publisher: str | None = None
-        self.month: int | None = None
-        self.year: int | None = None
-        self.day: int | None = None
-        self.issue_count: int | None = None
-        self.volume: int | None = None
-        self.genre: str | None = None
-        self.language: str | None = None  # 2 letter iso code
-        self.comments: str | None = None  # use same way as Summary in CIX
+    volume_count: int | None = None
+    critical_rating: float | None = None  # rating in cbl; CommunityRating in CIX
+    country: str | None = None
 
-        self.volume_count: int | None = None
-        self.critical_rating: float | None = None  # rating in cbl; CommunityRating in CIX
-        self.country: str | None = None
+    alternate_series: str | None = None
+    alternate_number: str | None = None
+    alternate_count: int | None = None
+    imprint: str | None = None
+    notes: str | None = None
+    web_link: str | None = None
+    format: str | None = None
+    manga: str | None = None
+    black_and_white: bool | None = None
+    page_count: int | None = None
+    maturity_rating: str | None = None
 
-        self.alternate_series: str | None = None
-        self.alternate_number: str | None = None
-        self.alternate_count: int | None = None
-        self.imprint: str | None = None
-        self.notes: str | None = None
-        self.web_link: str | None = None
-        self.format: str | None = None
-        self.manga: str | None = None
-        self.black_and_white: bool | None = None
-        self.page_count: int | None = None
-        self.maturity_rating: str | None = None
+    story_arc: str | None = None
+    story_arc_number: str | None = None
+    series_group: str | None = None
+    scan_info: str | None = None
 
-        self.story_arc: str | None = None
-        self.story_arc_number: str | None = None
-        self.series_group: str | None = None
-        self.scan_info: str | None = None
+    characters: str | None = None
+    teams: str | None = None
+    locations: str | None = None
 
-        self.characters: str | None = None
-        self.teams: str | None = None
-        self.locations: str | None = None
+    credits: list[CreditMetadata] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    pages: list[ImageMetadata] = field(default_factory=list)
 
-        self.credits: list[CreditMetadata] = []
-        self.tags: list[str] = []
-        self.pages: list[ImageMetadata] = []
+    # Some CoMet-only items
+    price: str | None = None
+    is_version_of: str | None = None
+    rights: str | None = None
+    identifier: str | None = None
+    last_mark: str | None = None
+    cover_image: str | None = None
 
-        # Some CoMet-only items
-        self.price: str | None = None
-        self.is_version_of: str | None = None
-        self.rights: str | None = None
-        self.identifier: str | None = None
-        self.last_mark: str | None = None
-        self.cover_image: str | None = None
+    def __post_init__(self):
+        for key, value in self.__dict__.items():
+            if value and key != "is_empty":
+                self.is_empty = False
+                break
 
     def overlay(self, new_md: GenericMetadata) -> None:
         """Overlay a metadata object on this one
@@ -206,7 +212,7 @@ class GenericMetadata:
             # Remove credit role if person is blank
             if c["person"] == "":
                 for r in reversed(self.credits):
-                    if r["role"].lower() == c["role"].lower():
+                    if r["role"].casefold() == c["role"].casefold():
                         self.credits.remove(r)
             # otherwise, add it!
             else:
@@ -254,7 +260,7 @@ class GenericMetadata:
         # look to see if it's not already there...
         found = False
         for c in self.credits:
-            if c["person"].lower() == person.lower() and c["role"].lower() == role.lower():
+            if c["person"].casefold() == person.casefold() and c["role"].casefold() == role.casefold():
                 # no need to add it. just adjust the "primary" flag as needed
                 c["primary"] = primary
                 found = True
@@ -266,8 +272,8 @@ class GenericMetadata:
     def get_primary_credit(self, role: str) -> str:
         primary = ""
         for credit in self.credits:
-            if (primary == "" and credit["role"].lower() == role.lower()) or (
-                credit["role"].lower() == role.lower() and credit["primary"]
+            if (primary == "" and credit["role"].casefold() == role.casefold()) or (
+                credit["role"].casefold() == role.casefold() and credit["primary"]
             ):
                 primary = credit["person"]
         return primary
@@ -325,7 +331,7 @@ class GenericMetadata:
         add_attr_string("comments")
         add_attr_string("notes")
 
-        add_string("tags", utils.list_to_string(self.tags))
+        add_string("tags", ", ".join(self.tags))
 
         for c in self.credits:
             primary = ""
@@ -357,12 +363,12 @@ class GenericMetadata:
 
         self.publisher = publisher
 
-        if self.imprint.lower() in publisher.lower():
+        if self.imprint.casefold() in publisher.casefold():
             self.imprint = None
 
         if self.imprint is None or self.imprint == "":
             self.imprint = imprint
-        elif self.imprint.lower() in imprint.lower():
+        elif self.imprint.casefold() in imprint.casefold():
             self.imprint = imprint
 
 

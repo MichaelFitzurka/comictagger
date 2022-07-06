@@ -154,8 +154,8 @@ class IssueSelectionWindow(QtWidgets.QDialog):
             self.twList.setItem(row, 3, QTW_item)
 
             if (
-                IssueString(record["issue_number"]).as_string().lower()
-                == IssueString(self.issue_number).as_string().lower()
+                IssueString(record["issue_number"]).as_string().casefold()
+                == IssueString(self.issue_number).as_string().casefold()
             ):
                 self.initial_id = record["id"]
 
