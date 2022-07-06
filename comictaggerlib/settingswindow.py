@@ -24,7 +24,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 
 from comicapi import utils
 from comicapi.genericmetadata import md_test
-from comictaggerlib.comicvinecacher import ComicVineCacher
+from comictaggerlib.comiccacher import ComicCacher
 from comictaggerlib.comicvinetalker import ComicVineTalker
 from comictaggerlib.filerenamer import FileRenamer
 from comictaggerlib.imagefetcher import ImageFetcher
@@ -151,7 +151,7 @@ class SettingsWindow(QtWidgets.QDialog):
             self.name = "Preferences"
 
         self.setWindowTitle("ComicTagger " + self.name)
-        self.lblDefaultSettings.setText("Revert to default " + self.name.lower())
+        self.lblDefaultSettings.setText("Revert to default " + self.name.casefold())
         self.btnResetSettings.setText("Default " + self.name)
 
         nldt_tip = """<html>The <b>Default Name Length Match Tolerance</b> is for eliminating automatic
@@ -334,7 +334,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
     def clear_cache(self) -> None:
         ImageFetcher().clear_cache()
-        ComicVineCacher().clear_cache()
+        ComicCacher().clear_cache()
         QtWidgets.QMessageBox.information(self, self.name, "Cache has been cleared.")
 
     def test_api_key(self) -> None:
