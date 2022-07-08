@@ -11,7 +11,7 @@ from py7zr import Bad7zFile, SevenZipFile
 from typing import Any, Tuple
 
 archive_extension: str = ".cb7"
-base_dir: str = "/Documents/Comics/Tagged"
+base_dir: str = os.path.expanduser("~/Documents/Comics/Tagged")
 cix_filename: str = "ComicInfo.xml"
 csv_filename: str = base_dir + "/Comics.csv"
 fields: list[str] = [
