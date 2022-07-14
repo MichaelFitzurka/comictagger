@@ -1115,7 +1115,7 @@ Have fun!
                     QtWidgets.QMessageBox.warning(self, self.tr("Web Link Error"), self.tr("Web Link URL was invalid."))
                     return
                 web_link = text
-            except:
+            except Exception:
                 QtWidgets.QMessageBox.critical(self, self.tr("Web Link Error"), self.tr("Web Link URL was invalid."))
                 return
         else:
