@@ -406,6 +406,7 @@ md_test: GenericMetadata = GenericMetadata(
     page_count=24,
     maturity_rating="Everyone 10+",
     story_arc="Here and Now",
+    story_arc_number="1",
     series_group="Futuristic Tales",
     scan_info="(CC BY-NC-SA 3.0)",
     characters="Anda",
