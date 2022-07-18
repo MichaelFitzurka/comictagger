@@ -26,7 +26,7 @@ import pprint
 import re
 import sys
 import webbrowser
-from typing import Any, Callable, cast
+from typing import Any, Callable, Iterable, cast
 from urllib.parse import urlparse
 
 import natsort
@@ -957,8 +957,8 @@ Have fun!
         tmp = self.teTags.toPlainText()
         if tmp is not None:
 
-            def strip_list(i: list[str]) -> list[str]:
-                return [x.strip() for x in i]
+            def strip_list(i: Iterable[str]) -> set[str]:
+                return {x.strip() for x in i}
 
             md.tags = strip_list(tmp.split(","))
 
@@ -1151,7 +1151,7 @@ Have fun!
                 self, self.tr("Web Link"), self.tr("Process failed to add web link to cover gallery.")
             )
 
-    def literal_search(self):
+    def literal_search(self) -> None:
         self.query_online(autoselect=False, literal=True)
 
     def query_online(self, autoselect: bool = False, literal: bool = False) -> None:
@@ -1291,7 +1291,6 @@ Have fun!
 
         if self.save_data_style == MetaDataStyle.CIX:
             # loop over credit table, mark selected rows
-            r = 0
             for r in range(self.twCredits.rowCount()):
                 if str(self.twCredits.item(r, 1).text()).casefold() not in cix_credits:
                     self.twCredits.item(r, 1).setBackground(inactive_brush)
@@ -1302,7 +1301,6 @@ Have fun!
 
         if self.save_data_style == MetaDataStyle.CBI:
             # loop over credit table, make all active color
-            r = 0
             for r in range(self.twCredits.rowCount()):
                 self.twCredits.item(r, 0).setBackground(active_brush)
                 self.twCredits.item(r, 1).setBackground(active_brush)
@@ -1486,16 +1484,11 @@ Have fun!
     def open_web_link(self) -> None:
         if self.leWebLink is not None:
             web_link = self.leWebLink.text().strip()
-            valid = False
             try:
                 result = urlparse(web_link)
-                valid = all([result.scheme in ["http", "https"], result.netloc])
-            except ValueError:
-                pass
-
-            if valid:
+                all([result.scheme in ["http", "https"], result.netloc])
                 webbrowser.open_new_tab(web_link)
-            else:
+            except ValueError:
                 QtWidgets.QMessageBox.warning(self, self.tr("Web Link"), self.tr("Web Link is invalid."))
 
     def show_settings(self) -> None:
@@ -1503,8 +1496,7 @@ Have fun!
         settingswin = SettingsWindow(self, self.settings)
         settingswin.setModal(True)
         settingswin.exec()
-        if settingswin.result():
-            pass
+        settingswin.result()
 
     def set_app_position(self) -> None:
         if self.settings.last_main_window_width != 0:
@@ -2074,7 +2066,7 @@ Have fun!
             QtWidgets.QMessageBox.information(self, self.tr("Auto-Tag Summary"), self.tr(summary))
         logger.info(summary)
 
-    def exception(self, message):
+    def exception(self, message: str) -> None:
         errorbox = QtWidgets.QMessageBox()
         errorbox.setText(message)
         errorbox.exec()
