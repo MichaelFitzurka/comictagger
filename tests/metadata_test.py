@@ -22,6 +22,7 @@ def test_cbi():
         page_count=None,
         maturity_rating=None,
         story_arc=None,
+        story_arc_number=None,
         series_group=None,
         scan_info=None,
         characters=None,
@@ -47,6 +48,7 @@ def test_comet():
     md_test = comicapi.genericmetadata.md_test.replace(
         day=None,
         story_arc=None,
+        story_arc_number=None,
         series_group=None,
         scan_info=None,
         teams=None,
