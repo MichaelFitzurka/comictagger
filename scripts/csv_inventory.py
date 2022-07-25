@@ -144,7 +144,11 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
         ":" in cix["Series"]
         and "Format" in cix
         and cix["Format"] == "Trade Paper Back"
-        and (cix["Series"].endswith("Edition") or cix["Series"].endswith("Collection"))
+        and (
+            cix["Series"].endswith("Edition")
+            or cix["Series"].endswith("Collection")
+            or cix["Series"].endswith("Compendium")
+        )
     ):
         cix["SeriesSort"] = cix["Series"][0 : cix["Series"].rfind(":")]
     else:
