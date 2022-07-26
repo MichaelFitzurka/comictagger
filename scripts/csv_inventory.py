@@ -45,7 +45,6 @@ fields_filename_index: int = 22
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-annual_regex: re.Pattern = re.compile(r" Annual")
 fcbd_regex: re.Pattern = re.compile(r"FCBD|Free Comic Book Day", re.IGNORECASE)
 number_regex: re.Pattern = re.compile(r"#(\S+)$")
 number_count_regex: re.Pattern = re.compile(r"#(\S+) of (\S+)$")
@@ -134,7 +133,6 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
 
     comic_bookmarks, other_bookmarks = extract_bookmarks(pages)
     for k, v in comic_bookmarks.items():
-        print(f"Processing: >> {v}")
         rows.append(generate_row(transform_bookmark(k, v, cix, other_bookmarks)))
 
     cix["Bookmarks"] = format_bookmarks(other_bookmarks)
@@ -233,15 +231,16 @@ def transform_bookmark(
             bookmark_cix["Number"] = "0"
         elif bookmark_cix["Number"] == "½":
             bookmark_cix["Format"] = "1/2"
-    elif annual_regex.search(bookmark_text):
-        bookmark_cix["Format"] = "Annual"
-        bookmark_cix["Number"] = "1"
-    elif fcbd_regex.search(bookmark_text):
-        bookmark_cix["Format"] = "FCBD"
-        bookmark_cix["Number"] = "1"
     else:
         bookmark_cix["Format"] = "One Shot"
         bookmark_cix["Number"] = "1"
+
+    if bookmark_cix["Series"].endswith("Annual"):
+        bookmark_cix["Format"] = "Annual"
+    elif fcbd_regex.search(bookmark_text):
+        bookmark_cix["Format"] = "FCBD"
+    elif bookmark_cix["Series"].endswith("Giant"):
+        bookmark_cix["Format"] = "Giant"
 
     if "SeriesGroup" in cix:
         bookmark_cix["SeriesGroup"] = cix["SeriesGroup"]
