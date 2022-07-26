@@ -1119,10 +1119,18 @@ Have fun!
         else:
             return
 
+        key_count, ok = QInputDialog.getInt(self, self.tr("Enter Web Link"), self.tr("Key Count:"), 999, 0, 999, 1)
+        if not ok:
+            return
+
+        cover_url_count, ok = QInputDialog.getInt(self, self.tr("Enter Web Link"), self.tr("Cover URL Count:"), 999, 0, 999, 1)
+        if not ok:
+            return
+
         QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.WaitCursor))
 
         cgf = CoverGalleryFetcher(self.comic_archive, self.metadata)
-        cgf.process_cover_url(web_link)
+        cgf.process_cover_url(web_link, key_count, cover_url_count)
         adds = cgf.get_adds()
 
         if len(adds) > 0:
