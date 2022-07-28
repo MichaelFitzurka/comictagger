@@ -22,26 +22,25 @@ fields: list[str] = [
     "Format",
     "Number",
     "Count",
-    "Year",
-    "Month",
-    "Day",
     "Title",
+    "Alternate",
+    "Bookmarks",
+    # "EmbeddedComics",
     "StoryArc",
     "StoryArcNum",
     "Publisher",
     "Imprint",
+    "Year",
+    "Month",
+    "Day",
     "ScanInformation",
     "PageCount",
     "PageTypeCount",
-    "Bookmarks",
-    # "EmbeddedComics",
     "Notes",
     "Web",
     "Directory",
     "Filename",
 ]
-fields_directory_index: int = 21
-fields_filename_index: int = 22
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -131,10 +130,16 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
     cix: dict[str, Any] = xmltodict.parse(cix_data)["ComicInfo"]
     pages: list[dict[str, str]] = cix["Pages"]["Page"]
 
+    if "AlternateSeries" in cix:
+        cix["Alternate"] = cix["AlternateSeries"]
+        if "AlternateNumber" in cix:
+            cix["Alternate"] += " #" + cix["AlternateNumber"]
+            if "AlternateCount" in cix:
+                cix["Alternate"] += " of " + cix["AlternateCount"]
+
     comic_bookmarks, other_bookmarks = extract_bookmarks(pages)
     for k, v in comic_bookmarks.items():
         rows.append(generate_row(transform_bookmark(k, v, cix, other_bookmarks)))
-
     cix["Bookmarks"] = format_bookmarks(other_bookmarks)
     cix["EmbeddedComics"] = format_bookmarks(comic_bookmarks)
 
@@ -171,8 +176,8 @@ def process_directory() -> list[list[str | None]]:
                 print(f"Processing: {file}")
                 new_rows: list[list[str | None]] = process_archive(os.path.join(root, file))
                 for new_row in new_rows:
-                    new_row[fields_directory_index] = root.replace(base_dir, "")
-                    new_row[fields_filename_index] = file.replace(archive_extension, "")
+                    new_row[fields.index("Directory")] = root.replace(base_dir, "")
+                    new_row[fields.index("Filename")] = file.replace(archive_extension, "")
                     rows.append(new_row)
     return rows
 
