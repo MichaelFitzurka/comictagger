@@ -2,6 +2,7 @@
 """Print out a csv list of basic tag info from all comics"""
 
 import csv
+import json
 import logging
 import os
 import re
@@ -23,11 +24,11 @@ fields: list[str] = [
     "Number",
     "Count",
     "Title",
+    "StoryArc",
+    "StoryArcNum",
     "Alternate",
     "Bookmarks",
     # "EmbeddedComics",
-    "StoryArc",
-    "StoryArcNum",
     "Publisher",
     "Imprint",
     "Year",
@@ -130,6 +131,7 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
     cix: dict[str, Any] = xmltodict.parse(cix_data)["ComicInfo"]
     pages: list[dict[str, str]] = cix["Pages"]["Page"]
 
+    # Process Alternate
     if "AlternateSeries" in cix:
         cix["Alternate"] = cix["AlternateSeries"]
         if "AlternateNumber" in cix:
@@ -137,14 +139,17 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
             if "AlternateCount" in cix:
                 cix["Alternate"] += " of " + cix["AlternateCount"]
 
+    # Process Bookmarks & EnbeddedComics
     comic_bookmarks, other_bookmarks = extract_bookmarks(pages)
     for k, v in comic_bookmarks.items():
         rows.append(generate_row(transform_bookmark(k, v, cix, other_bookmarks)))
     cix["Bookmarks"] = format_bookmarks(other_bookmarks)
     cix["EmbeddedComics"] = format_bookmarks(comic_bookmarks)
 
+    # Process PageTypeCount
     cix["PageTypeCount"] = format_page_type_count(extract_page_type_counts(pages))
 
+    # Process SeriesSort
     if (
         ":" in cix["Series"]
         and "Format" in cix
@@ -161,6 +166,7 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
     if "SeriesGroup" in cix:
         cix["SeriesSort"] = cix["SeriesGroup"] + "; " + cix["SeriesSort"]
 
+    # Process Title
     if "Title" in cix:
         cix["Title"] = cix["Title"].replace("; ", "\r\n")
 
@@ -200,6 +206,12 @@ def transform_bookmark(
     bookmark_page: int, bookmark_text: str, cix: dict[str, Any], other_bookmarks: dict[int, str]
 ) -> dict[str, str]:
     bookmark_cix: dict[str, str] = {}
+
+    # Extract Override JSON
+    json_text: str = None
+    if " {" in bookmark_text and bookmark_text.endswith("}"):
+        json_text = bookmark_text[bookmark_text.rfind("{"):]
+        bookmark_text = bookmark_text[0: bookmark_text.rfind(" {")]
 
     cix_id = cix["Series"]
     if "Title" in cix:
@@ -249,14 +261,24 @@ def transform_bookmark(
 
     if "SeriesGroup" in cix:
         bookmark_cix["SeriesGroup"] = cix["SeriesGroup"]
-        bookmark_cix["SeriesSort"] = cix["SeriesGroup"] + "; " + bookmark_cix["Series"]
-    else:
-        bookmark_cix["SeriesSort"] = bookmark_cix["Series"]
-
     if "Publisher" in cix:
         bookmark_cix["Publisher"] = cix["Publisher"]
     if "Imprint" in cix:
         bookmark_cix["Imprint"] = cix["Imprint"]
+
+    # Process Override JSON
+    if json_text:
+        json_overrides: dict[str, Any] = json.loads(json_text)
+        for k, v in json_overrides.items():
+            if v:
+                bookmark_cix[k] = v
+            elif k in bookmark_cix:
+                del bookmark_cix[k]
+
+    if "SeriesGroup" in bookmark_cix:
+        bookmark_cix["SeriesSort"] = cix["SeriesGroup"] + "; " + bookmark_cix["Series"]
+    else:
+        bookmark_cix["SeriesSort"] = bookmark_cix["Series"]
 
     return bookmark_cix
 
