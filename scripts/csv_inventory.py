@@ -190,9 +190,8 @@ def process_directory() -> list[list[str | None]]:
                 print(f"Processing: {file}")
                 new_rows: list[list[str | None]] = process_archive(os.path.join(root, file))
                 for new_row in new_rows:
-                    new_row[
-                        fields.index("File")
-                    ] = f'=HYPERLINK("{urllib.parse.quote(root.replace(base_dir, ".") + "/" + file)}","\U0001F5BA")'
+                    file_url: str = urllib.parse.quote(f'{root.replace(base_dir, ".")}/{file}')
+                    new_row[fields.index("File")] = f'=HYPERLINK("{file_url}","\U0001F5BA")'
                     new_row[fields.index("Directory")] = root.replace(base_dir, "")
                     new_row[fields.index("Filename")] = file.replace(archive_extension, "")
                     rows.append(new_row)
