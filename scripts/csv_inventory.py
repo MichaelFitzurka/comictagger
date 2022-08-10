@@ -6,16 +6,19 @@ import json
 import logging
 import os
 import re
-import xmltodict
+from typing import Any, Tuple
+import urllib
 
 from py7zr import Bad7zFile, SevenZipFile
-from typing import Any, Tuple
+import xmltodict
 
 archive_extension: str = ".cb7"
 base_dir: str = os.path.expanduser("~/Documents/Comics/Tagged")
 cix_filename: str = "ComicInfo.xml"
 csv_filename: str = base_dir + "/Comics.csv"
 fields: list[str] = [
+    "File",
+    "Link",
     "SeriesSort",
     "SeriesGroup",
     "Series",
@@ -78,6 +81,7 @@ def extract_page_type_counts(pages: list[dict[str, str]]) -> dict[str, int]:
         page_type: str = "Story"
         if "@Type" in page:
             page_type = page["@Type"]
+
         if page_type in page_type_counts:
             page_type_counts[page_type] += 1
         else:
@@ -135,9 +139,9 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
     if "AlternateSeries" in cix:
         cix["Alternate"] = cix["AlternateSeries"]
         if "AlternateNumber" in cix:
-            cix["Alternate"] += " #" + cix["AlternateNumber"]
+            cix["Alternate"] += f' #{cix["AlternateNumber"]}'
             if "AlternateCount" in cix:
-                cix["Alternate"] += " of " + cix["AlternateCount"]
+                cix["Alternate"] += f' of {cix["AlternateCount"]}'
 
     # Process Bookmarks & EnbeddedComics
     comic_bookmarks, other_bookmarks = extract_bookmarks(pages)
@@ -145,6 +149,10 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
         rows.append(generate_row(transform_bookmark(k, v, cix, other_bookmarks)))
     cix["Bookmarks"] = format_bookmarks(other_bookmarks)
     cix["EmbeddedComics"] = format_bookmarks(comic_bookmarks)
+
+    # Process Link
+    if "Web" in cix:
+        cix["Link"] = f'=HYPERLINK("{cix["Web"]}","\U0001F517")'
 
     # Process PageTypeCount
     cix["PageTypeCount"] = format_page_type_count(extract_page_type_counts(pages))
@@ -164,7 +172,7 @@ def process_archive(archive_filename: str) -> list[list[str | None]]:
     else:
         cix["SeriesSort"] = cix["Series"]
     if "SeriesGroup" in cix:
-        cix["SeriesSort"] = cix["SeriesGroup"] + "; " + cix["SeriesSort"]
+        cix["SeriesSort"] = f'{cix["SeriesGroup"]}; {cix["SeriesSort"]}'
 
     # Process Title
     if "Title" in cix:
@@ -182,6 +190,9 @@ def process_directory() -> list[list[str | None]]:
                 print(f"Processing: {file}")
                 new_rows: list[list[str | None]] = process_archive(os.path.join(root, file))
                 for new_row in new_rows:
+                    new_row[
+                        fields.index("File")
+                    ] = f'=HYPERLINK("{urllib.parse.quote(root.replace(base_dir, "./") + file)}","\U0001F5BA")'
                     new_row[fields.index("Directory")] = root.replace(base_dir, "")
                     new_row[fields.index("Filename")] = file.replace(archive_extension, "")
                     rows.append(new_row)
@@ -210,16 +221,18 @@ def transform_bookmark(
     # Extract Override JSON
     json_text: str = None
     if " {" in bookmark_text and bookmark_text.endswith("}"):
-        json_text = bookmark_text[bookmark_text.rfind("{"):]
-        bookmark_text = bookmark_text[0: bookmark_text.rfind(" {")]
+        json_text = bookmark_text[bookmark_text.rfind("{") :]
+        bookmark_text = bookmark_text[0 : bookmark_text.rfind(" {")]
 
     cix_id = cix["Series"]
     if "Title" in cix:
         cix_id += f' [{cix["Title"]}]'
+
     bookmark_cix["Bookmarks"] = f"{cix_id}: {bookmark_page}"
 
     bookmark_cix["Volume"] = volume_regex.search(bookmark_text).group(1)
 
+    # Extract Series and Title
     if " [" in bookmark_text:
         bookmark_cix["Series"] = bookmark_text[0 : bookmark_text.find(" [")]
         title = bookmark_text[bookmark_text.find("[") + 1 : bookmark_text.rfind("]")]
@@ -236,6 +249,7 @@ def transform_bookmark(
     else:
         bookmark_cix["Series"] = bookmark_text[0 : bookmark_text.find(" (")]
 
+    # Process Defaults Based on Formatting
     if number_count_regex.search(bookmark_text):
         bookmark_cix["Format"] = "Limited Series"
         found = number_count_regex.search(bookmark_text)
@@ -252,6 +266,7 @@ def transform_bookmark(
         bookmark_cix["Format"] = "One Shot"
         bookmark_cix["Number"] = "1"
 
+    # Process Overrides Based on Series
     if bookmark_cix["Series"].endswith("Annual"):
         bookmark_cix["Format"] = "Annual"
     elif fcbd_regex.search(bookmark_text):
@@ -259,6 +274,7 @@ def transform_bookmark(
     elif bookmark_cix["Series"].endswith("Giant"):
         bookmark_cix["Format"] = "Giant"
 
+    # Process Overrides Based on Archive Values
     if "SeriesGroup" in cix:
         bookmark_cix["SeriesGroup"] = cix["SeriesGroup"]
     if "Publisher" in cix:
@@ -275,8 +291,9 @@ def transform_bookmark(
             elif k in bookmark_cix:
                 del bookmark_cix[k]
 
+    # Extract SeriesGroup After Overrides
     if "SeriesGroup" in bookmark_cix:
-        bookmark_cix["SeriesSort"] = cix["SeriesGroup"] + "; " + bookmark_cix["Series"]
+        bookmark_cix["SeriesSort"] = f'{cix["SeriesGroup"]}; {bookmark_cix["Series"]}'
     else:
         bookmark_cix["SeriesSort"] = bookmark_cix["Series"]
 
