@@ -192,7 +192,7 @@ def process_directory() -> list[list[str | None]]:
                 for new_row in new_rows:
                     new_row[
                         fields.index("File")
-                    ] = f'=HYPERLINK("{urllib.parse.quote(root.replace(base_dir, "./") + file)}","\U0001F5BA")'
+                    ] = f'=HYPERLINK("{urllib.parse.quote(root.replace(base_dir, ".") + "/" + file)}","\U0001F5BA")'
                     new_row[fields.index("Directory")] = root.replace(base_dir, "")
                     new_row[fields.index("Filename")] = file.replace(archive_extension, "")
                     rows.append(new_row)
