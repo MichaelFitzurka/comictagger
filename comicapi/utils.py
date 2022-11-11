@@ -26,13 +26,23 @@ from shutil import which  # noqa: F401
 from typing import Any
 
 import pycountry
-import thefuzz.fuzz
+import rapidfuzz.fuzz
+
+import comicapi.data
 
 logger = logging.getLogger(__name__)
 
 
 class UtilsVars:
     already_fixed_encoding = False
+
+
+def combine_notes(existing_notes: str | None, new_notes: str | None, split: str) -> str:
+    split_notes, _, untouched_notes = (existing_notes or "").rpartition(split)
+    if split_notes:
+        return (split_notes + (new_notes or "")).strip()
+    else:
+        return (untouched_notes + "\n" + (new_notes or "")).strip()
 
 
 def parse_date_str(date_str: str) -> tuple[int | None, int | None, int | None]:
@@ -155,7 +165,7 @@ def sanitize_title(text: str, basic: bool = False) -> str:
 def titles_match(search_title: str, record_title: str, threshold: int = 90) -> bool:
     sanitized_search = sanitize_title(search_title)
     sanitized_record = sanitize_title(record_title)
-    ratio: int = thefuzz.fuzz.ratio(sanitized_search, sanitized_record)
+    ratio: int = rapidfuzz.fuzz.ratio(sanitized_search, sanitized_record)
     logger.debug(
         "search title: %s ; record title: %s ; ratio: %d ; match threshold: %d",
         search_title,
@@ -193,18 +203,15 @@ def get_language_from_iso(iso: str | None) -> str | None:
     return languages[iso]
 
 
-def get_language(string: str | None) -> str | None:
+def get_language_iso(string: str | None) -> str | None:
     if string is None:
         return None
-    string = string.casefold()
+    lang = string.casefold()
 
-    lang = get_language_from_iso(string)
-
-    if lang is None:
-        try:
-            return str(pycountry.languages.lookup(string).name)
-        except LookupError:
-            return None
+    try:
+        return getattr(pycountry.languages.lookup(string), "alpha_2", None)
+    except LookupError:
+        pass
     return lang
 
 
@@ -260,6 +267,6 @@ publishers: dict[str, ImprintDict] = {}
 
 def load_publishers() -> None:
     try:
-        update_publishers(json.loads((pathlib.Path(__file__).parent / "data" / "publishers.json").read_text("utf-8")))
+        update_publishers(json.loads((comicapi.data.data_path / "publishers.json").read_text("utf-8")))
     except Exception:
         logger.exception("Failed to load publishers.json; The are no publishers or imprints loaded")
