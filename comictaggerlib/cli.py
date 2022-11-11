@@ -22,14 +22,17 @@ import logging
 import os
 import pathlib
 import sys
+from datetime import datetime
 from pprint import pprint
 
 from comicapi import utils
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import GenericMetadata
+from comictaggerlib import ctversion
 from comictaggerlib.cbltransformer import CBLTransformer
 from comictaggerlib.comicvinetalker import ComicVineTalker, ComicVineTalkerException
 from comictaggerlib.filerenamer import FileRenamer, get_rename_dir
+from comictaggerlib.graphics import graphics_path
 from comictaggerlib.issueidentifier import IssueIdentifier
 from comictaggerlib.resulttypes import IssueResult, MultipleMatch, OnlineMatchResults
 from comictaggerlib.settings import ComicTaggerSettings
@@ -111,7 +114,11 @@ def display_match_set_for_choice(
             if opts.overwrite:
                 md = cv_md
             else:
-                md.overlay(cv_md)
+                notes = (
+                    f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on"
+                    f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {cv_md.issue_id}]"
+                )
+                md.overlay(cv_md.replace(notes=utils.combine_notes(md.notes, notes, "Tagged with ComicTagger")))
 
             if opts.auto_imprint:
                 md.fix_publisher()
@@ -214,7 +221,7 @@ def process_file_cli(
 ) -> None:
     batch_mode = len(opts.file_list) > 1
 
-    ca = ComicArchive(filename, settings.rar_exe_path, ComicTaggerSettings.get_graphic("nocover.png"))
+    ca = ComicArchive(filename, settings.rar_exe_path, str(graphics_path / "nocover.png"))
 
     if not os.path.lexists(filename):
         logger.error("Cannot find %s", filename)
@@ -460,7 +467,11 @@ def process_file_cli(
             if opts.overwrite:
                 md = cv_md
             else:
-                md.overlay(cv_md)
+                notes = (
+                    f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on"
+                    f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {cv_md.issue_id}]"
+                )
+                md.overlay(cv_md.replace(notes=utils.combine_notes(md.notes, notes, "Tagged with ComicTagger")))
 
             if opts.auto_imprint:
                 md.fix_publisher()

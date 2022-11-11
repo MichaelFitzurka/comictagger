@@ -22,7 +22,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
-from comictaggerlib.settings import ComicTaggerSettings
+from comictaggerlib.ui import ui_path
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class PageListEditor(QtWidgets.QWidget):
     def __init__(self, parent: QtWidgets.QWidget) -> None:
         super().__init__(parent)
 
-        uic.loadUi(ComicTaggerSettings.get_ui_file("pagelisteditor.ui"), self)
+        uic.loadUi(ui_path / "pagelisteditor.ui", self)
 
         self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
         gridlayout = QtWidgets.QGridLayout(self.pageContainer)
@@ -340,9 +340,9 @@ class PageListEditor(QtWidgets.QWidget):
             else:
                 text += " (Error: " + page_dict["Type"] + ")"
         if "DoublePage" in page_dict:
-            text += " " + "\U00002461"
+            text += " ②"
         if "Bookmark" in page_dict:
-            text += " " + "\U0001F516"
+            text += " 🔖"
         return text
 
     def get_page_list(self) -> list[ImageMetadata]:
