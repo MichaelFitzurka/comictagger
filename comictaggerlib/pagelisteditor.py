@@ -22,8 +22,10 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
+from comictaggerlib.graphics import graphics_path
 from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
+from comictaggerlib.ui import ui_path
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ class PageListEditor(QtWidgets.QWidget):
     def __init__(self, parent: QtWidgets.QWidget, settings: ComicTaggerSettings) -> None:
         super().__init__(parent)
 
-        uic.loadUi(ComicTaggerSettings.get_ui_file("pagelisteditor.ui"), self)
+        uic.loadUi(ui_path / "pagelisteditor.ui", self)
         self.settings = settings
 
         self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
@@ -96,8 +98,8 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.Other], PageType.Other, "Alt+O")
         self.add_page_type_item(self.pageTypeNames[PageType.Deleted], PageType.Deleted, "Alt+X")
 
-        self.btnKeySearch.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
-        self.btnClear.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("clear.png")))
+        self.btnKeySearch.setIcon(QtGui.QIcon(str(graphics_path / "search.png")))
+        self.btnClear.setIcon(QtGui.QIcon(str(graphics_path / "clear.png")))
 
         self.listWidget.itemSelectionChanged.connect(self.change_page)
         item_move_events(self.listWidget).connect(self.item_move_event)
@@ -417,11 +419,11 @@ class PageListEditor(QtWidgets.QWidget):
             else:
                 text += " (Error: " + page_dict["Type"] + ")"
         if "DoublePage" in page_dict:
-            text += " " + "\U00002461"
+            text += " ②"
         if "Bookmark" in page_dict:
-            text += " " + "\U0001F516"
+            text += " 🔖"
         if "Key" in page_dict:
-            text += " " + "\U0001F511"
+            text += " 🔑"
         return text
 
     def get_page_list(self) -> list[ImageMetadata]:

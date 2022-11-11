@@ -63,17 +63,35 @@ def test_xlate(value, result):
 
 
 language_values = [
-    ("en", "English"),
-    ("EN", "English"),
-    ("En", "English"),
-    ("", None),
+    ("english", "en"),
+    ("ENGLISH", "en"),
+    ("EnglisH", "en"),
+    ("", ""),
+    ("aaa", None),  # does not have a 2-letter code
     (None, None),
 ]
 
 
 @pytest.mark.parametrize("value, result", language_values)
-def test_get_language(value, result):
-    assert result == comicapi.utils.get_language(value)
+def test_get_language_iso(value, result):
+    assert result == comicapi.utils.get_language_iso(value)
+
+
+combine_values = [
+    ("hello", "english", "en", "hello\nenglish"),
+    ("hello en", "english", "en", "hello english"),
+    ("hello en goodbye", "english", "en", "hello english"),
+    ("hello en en goodbye", "english", "en", "hello en english"),
+    ("", "english", "en", "english"),
+    (None, "english", "en", "english"),
+    ("hello", "", "en", "hello"),
+    ("hello", None, "en", "hello"),
+]
+
+
+@pytest.mark.parametrize("existing_notes, new_notes, split, result", combine_values)
+def test_combine_notes(existing_notes, new_notes, split, result):
+    assert result == comicapi.utils.combine_notes(existing_notes, new_notes, split)
 
 
 def test_unique_file(tmp_path):
