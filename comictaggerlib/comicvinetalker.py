@@ -19,7 +19,6 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
 from typing import Any, Callable, cast
 from urllib.parse import urlencode, urljoin, urlsplit
 
@@ -253,7 +252,7 @@ class ComicVineTalker:
         # ORed together, and we get thousands of results.  Good news is the
         # results are sorted by relevance, so we can be smart about halting the search.
         # 1. Don't fetch more than some sane amount of pages.
-        # 2. Halt when any result on the current page is less than or equal to a set ratio using thefuzz
+        # 2. Halt when any result on the current page is less than or equal to a set ratio using rapidfuzz
         max_results = 500  # 5 pages
 
         total_result_count = min(total_result_count, max_results)
@@ -327,10 +326,11 @@ class ComicVineTalker:
 
     def fetch_issues_by_volume(self, series_id: int) -> list[resulttypes.CVIssuesResults]:
         # before we search online, look in our cache, since we might already have this info
+        volume_data = self.fetch_volume_data(series_id)
         cvc = ComicCacher()
         cached_volume_issues_result = cvc.get_volume_issues_info(series_id, self.source_name)
 
-        if cached_volume_issues_result:
+        if len(cached_volume_issues_result) >= volume_data["count_of_issues"]:
             return cached_volume_issues_result
 
         params = {
@@ -407,6 +407,10 @@ class ComicVineTalker:
 
         self.repair_urls(filtered_issues_result)
 
+        cvc = ComicCacher()
+        for c in filtered_issues_result:
+            cvc.add_volume_issues_info(self.source_name, c["volume"]["id"], [c])
+
         return filtered_issues_result
 
     def fetch_issue_data(self, series_id: int, issue_number: str, settings: ComicTaggerSettings) -> GenericMetadata:
@@ -461,6 +465,8 @@ class ComicVineTalker:
         # Now, map the Comic Vine data to generic metadata
         metadata = GenericMetadata()
         metadata.is_empty = False
+        metadata.tag_origin = "Comic Vine"
+        metadata.issue_id = issue_results["id"]
 
         metadata.series = utils.xlate(issue_results["volume"]["name"])
         metadata.issue = IssueString(issue_results["issue_number"]).as_string()
@@ -474,10 +480,6 @@ class ComicVineTalker:
         if settings.use_series_start_as_volume:
             metadata.volume = int(volume_results["start_year"])
 
-        metadata.notes = (
-            f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on"
-            f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {issue_results['id']}]"
-        )
         metadata.web_link = issue_results["site_detail_url"]
 
         person_credits = issue_results["person_credits"]
@@ -671,7 +673,7 @@ class ComicVineTalker:
 
     def fetch_alternate_cover_urls(self, issue_id: int, issue_page_url: str) -> list[str]:
         url_list = self.fetch_cached_alternate_cover_urls(issue_id)
-        if url_list is not None:
+        if url_list:
             return url_list
 
         # scrape the CV issue page URL to get the alternate cover URLs
