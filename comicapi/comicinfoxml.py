@@ -159,7 +159,7 @@ class ComicInfoXml:
         assign("Locations", md.locations)
         assign("ScanInformation", md.scan_info)
         assign("StoryArc", md.story_arc)
-        assign("StoryArcNum", md.story_arc_number)
+        assign("StoryArcNumber", md.story_arc_number)
         assign("SeriesGroup", md.series_group)
         assign("AgeRating", md.maturity_rating)
 
@@ -223,7 +223,7 @@ class ComicInfoXml:
         md.page_count = utils.xlate(get("PageCount"), True)
         md.scan_info = utils.xlate(get("ScanInformation"))
         md.story_arc = utils.xlate(get("StoryArc"))
-        md.story_arc_number = utils.xlate(get("StoryArcNum"))
+        md.story_arc_number = utils.xlate(get("StoryArcNumber"))
         md.series_group = utils.xlate(get("SeriesGroup"))
         md.maturity_rating = utils.xlate(get("AgeRating"))
         md.critical_rating = utils.xlate(get("CommunityRating"), is_float=True)

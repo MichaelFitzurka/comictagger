@@ -805,7 +805,7 @@ Have fun!
         assign_text(self.teComments, md.comments)
         assign_text(self.teNotes, md.notes)
         assign_text(self.leStoryArc, md.story_arc)
-        assign_text(self.leStoryArcNum, md.story_arc_number)
+        assign_text(self.leStoryArcNumber, md.story_arc_number)
         assign_text(self.leScanInfo, md.scan_info)
         assign_text(self.leSeriesGroup, md.series_group)
         assign_text(self.leAltSeries, md.alternate_series)
@@ -934,7 +934,7 @@ Have fun!
             md.critical_rating = None
 
         md.story_arc = self.leStoryArc.text()
-        md.story_arc_number = self.leStoryArcNum.text()
+        md.story_arc_number = self.leStoryArcNumber.text()
         md.scan_info = self.leScanInfo.text()
         md.series_group = self.leSeriesGroup.text()
         md.alternate_series = self.leAltSeries.text()
@@ -1237,7 +1237,7 @@ Have fun!
             self.cbBW,
             self.cbManga,
             self.leStoryArc,
-            self.leStoryArcNum,
+            self.leStoryArcNumber,
             self.leScanInfo,
             self.leSeriesGroup,
             self.leAltSeries,
