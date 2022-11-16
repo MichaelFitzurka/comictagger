@@ -28,7 +28,7 @@ fields: list[str] = [
     "Count",
     "Title",
     "StoryArc",
-    "StoryArcNum",
+    "StoryArcNumber",
     "Alternate",
     "Bookmarks",
     # "EmbeddedComics",
