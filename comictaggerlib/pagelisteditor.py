@@ -24,8 +24,8 @@ from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
 from comictaggerlib.graphics import graphics_path
 from comictaggerlib.settings import ComicTaggerSettings
-from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
 from comictaggerlib.ui import ui_path
+from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
 
 logger = logging.getLogger(__name__)
 
