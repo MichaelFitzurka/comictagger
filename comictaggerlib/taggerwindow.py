@@ -1131,7 +1131,9 @@ Have fun!
         if not ok:
             return
 
-        cover_url_count, ok = QInputDialog.getInt(self, self.tr("Enter Web Link"), self.tr("Cover URL Count:"), 999, 0, 999, 1)
+        cover_url_count, ok = QInputDialog.getInt(
+            self, self.tr("Enter Web Link"), self.tr("Cover URL Count:"), 999, 0, 999, 1
+        )
         if not ok:
             return
 
