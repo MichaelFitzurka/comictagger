@@ -22,6 +22,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import ImageMetadata, PageType
 from comictaggerlib.coverimagewidget import CoverImageWidget
+from comictaggerlib.graphics import graphics_path
 from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.ui import ui_path
 from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
@@ -97,8 +98,8 @@ class PageListEditor(QtWidgets.QWidget):
         self.add_page_type_item(self.pageTypeNames[PageType.Other], PageType.Other, "Alt+O")
         self.add_page_type_item(self.pageTypeNames[PageType.Deleted], PageType.Deleted, "Alt+X")
 
-        self.btnKeySearch.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("search.png")))
-        self.btnClear.setIcon(QtGui.QIcon(ComicTaggerSettings.get_graphic("clear.png")))
+        self.btnKeySearch.setIcon(QtGui.QIcon(str(graphics_path / "search.png")))
+        self.btnClear.setIcon(QtGui.QIcon(str(graphics_path / "clear.png")))
 
         self.listWidget.itemSelectionChanged.connect(self.change_page)
         item_move_events(self.listWidget).connect(self.item_move_event)
