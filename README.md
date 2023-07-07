@@ -89,10 +89,10 @@ choco install comictagger
         </a>
     </td>
     <td align="center">
-        <a href="https://github.com/fcanc">
-            <img src="https://avatars.githubusercontent.com/u/4999486?v=4" width="100;" alt="fcanc"/>
+        <a href="https://github.com/MichaelFitzurka">
+            <img src="https://avatars.githubusercontent.com/u/27830765?v=4" width="100;" alt="MichaelFitzurka"/>
             <br />
-            <sub><b>fcanc</b></sub>
+            <sub><b>MichaelFitzurka</b></sub>
         </a>
     </td>
     <td align="center">
@@ -110,10 +110,10 @@ choco install comictagger
         </a>
     </td>
     <td align="center">
-        <a href="https://github.com/MichaelFitzurka">
-            <img src="https://avatars.githubusercontent.com/u/27830765?v=4" width="100;" alt="MichaelFitzurka"/>
+        <a href="https://github.com/fcanc">
+            <img src="https://avatars.githubusercontent.com/u/4999486?v=4" width="100;" alt="fcanc"/>
             <br />
-            <sub><b>MichaelFitzurka</b></sub>
+            <sub><b>fcanc</b></sub>
         </a>
     </td></tr>
 <tr>
