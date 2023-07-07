@@ -1,6 +1,6 @@
 """A PyQt5 widget for managing list of comic archive files"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,9 +24,9 @@ from PyQt5 import QtCore, QtWidgets, uic
 
 from comicapi import utils
 from comicapi.comicarchive import ComicArchive
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.graphics import graphics_path
 from comictaggerlib.optionalmsgdialog import OptionalMessageDialog
-from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.settingswindow import linuxRarHelp, macRarHelp, windowsRarHelp
 from comictaggerlib.ui import ui_path
 from comictaggerlib.ui.qtutils import center_window_on_parent, reduce_widget_font_size
@@ -57,16 +57,13 @@ class FileSelectionList(QtWidgets.QWidget):
     dataColNum = fileColNum
 
     def __init__(
-        self,
-        parent: QtWidgets.QWidget,
-        settings: ComicTaggerSettings,
-        dirty_flag_verification: Callable[[str, str], bool],
+        self, parent: QtWidgets.QWidget, config: ct_ns, dirty_flag_verification: Callable[[str, str], bool]
     ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ui_path / "fileselectionlist.ui", self)
 
-        self.settings = settings
+        self.config = config
 
         reduce_widget_font_size(self.twList)
 
@@ -183,7 +180,6 @@ class FileSelectionList(QtWidgets.QWidget):
             self.listCleared.emit()
 
     def add_path_list(self, pathlist: list[str]) -> None:
-
         filelist = utils.get_recursive_filelist(pathlist)
         # we now have a list of files to add
 
@@ -196,7 +192,7 @@ class FileSelectionList(QtWidgets.QWidget):
 
         QtCore.QCoreApplication.processEvents()
         first_added = None
-        rar_added = False
+        rar_added_ro = False
         self.twList.setSortingEnabled(False)
         for idx, f in enumerate(filelist):
             QtCore.QCoreApplication.processEvents()
@@ -209,8 +205,7 @@ class FileSelectionList(QtWidgets.QWidget):
             row = self.add_path_item(f)
             if row is not None:
                 ca = self.get_archive_by_row(row)
-                if ca and ca.is_rar():
-                    rar_added = True
+                rar_added_ro = bool(ca and ca.archiver.name() == "RAR" and not ca.archiver.is_writable())
                 if first_added is None:
                     first_added = row
 
@@ -227,7 +222,7 @@ class FileSelectionList(QtWidgets.QWidget):
             else:
                 QtWidgets.QMessageBox.information(self, "File/Folder Open", "No readable comic archives were found.")
 
-        if rar_added and not utils.which(self.settings.rar_exe_path or "rar"):
+        if rar_added_ro:
             self.rar_ro_message()
 
         self.twList.setSortingEnabled(True)
@@ -281,7 +276,7 @@ class FileSelectionList(QtWidgets.QWidget):
         if self.is_list_dupe(path):
             return self.get_current_list_row(path)
 
-        ca = ComicArchive(path, self.settings.rar_exe_path, str(graphics_path / "nocover.png"))
+        ca = ComicArchive(path, str(graphics_path / "nocover.png"))
 
         if ca.seems_to_be_a_comic_archive():
             row: int = self.twList.rowCount()
@@ -342,14 +337,7 @@ class FileSelectionList(QtWidgets.QWidget):
             filename_item.setText(item_text)
             filename_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
 
-            if fi.ca.is_sevenzip():
-                item_text = "7Z"
-            elif fi.ca.is_zip():
-                item_text = "ZIP"
-            elif fi.ca.is_rar():
-                item_text = "RAR"
-            else:
-                item_text = ""
+            item_text = fi.ca.archiver.name()
             type_item.setText(item_text)
             type_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item_text)
 

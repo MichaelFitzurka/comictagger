@@ -1,6 +1,6 @@
 """A PyQt5 widget for editing the page list info"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,11 +29,9 @@ logger = logging.getLogger(__name__)
 
 def item_move_events(widget: QtWidgets.QWidget) -> QtCore.pyqtBoundSignal:
     class Filter(QtCore.QObject):
-
         mysignal = QtCore.pyqtSignal(str)
 
         def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-
             if obj == widget:
                 if event.type() == QtCore.QEvent.Type.ChildRemoved:
                     self.mysignal.emit("finish")
@@ -72,7 +70,7 @@ class PageListEditor(QtWidgets.QWidget):
 
         uic.loadUi(ui_path / "pagelisteditor.ui", self)
 
-        self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
+        self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode, None, None)
         gridlayout = QtWidgets.QGridLayout(self.pageContainer)
         gridlayout.addWidget(self.pageWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)

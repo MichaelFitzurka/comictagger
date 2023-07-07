@@ -1,6 +1,6 @@
 """A PyQT4 dialog to select from automated issue matches"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,27 +22,36 @@ from PyQt5 import QtCore, QtWidgets, uic
 
 from comicapi.comicarchive import ComicArchive
 from comictaggerlib.coverimagewidget import CoverImageWidget
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.resulttypes import IssueResult
 from comictaggerlib.ui import ui_path
 from comictaggerlib.ui.qtutils import reduce_widget_font_size
+from comictalker.comictalker import ComicTalker
 
 logger = logging.getLogger(__name__)
 
 
 class MatchSelectionWindow(QtWidgets.QDialog):
-    volume_id = 0
-
-    def __init__(self, parent: QtWidgets.QWidget, matches: list[IssueResult], comic_archive: ComicArchive) -> None:
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        matches: list[IssueResult],
+        comic_archive: ComicArchive,
+        config: ct_ns,
+        talker: ComicTalker,
+    ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ui_path / "matchselectionwindow.ui", self)
 
-        self.altCoverWidget = CoverImageWidget(self.altCoverContainer, CoverImageWidget.AltCoverMode)
+        self.altCoverWidget = CoverImageWidget(
+            self.altCoverContainer, CoverImageWidget.AltCoverMode, config.runtime_config.user_cache_dir, talker
+        )
         gridlayout = QtWidgets.QGridLayout(self.altCoverContainer)
         gridlayout.addWidget(self.altCoverWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)
 
-        self.archiveCoverWidget = CoverImageWidget(self.archiveCoverContainer, CoverImageWidget.ArchiveMode)
+        self.archiveCoverWidget = CoverImageWidget(self.archiveCoverContainer, CoverImageWidget.ArchiveMode, None, None)
         gridlayout = QtWidgets.QGridLayout(self.archiveCoverContainer)
         gridlayout.addWidget(self.archiveCoverWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)
@@ -67,7 +76,6 @@ class MatchSelectionWindow(QtWidgets.QDialog):
         self.update_data()
 
     def update_data(self) -> None:
-
         self.set_cover_image()
         self.populate_table()
         self.twList.resizeColumnsToContents()
@@ -77,7 +85,6 @@ class MatchSelectionWindow(QtWidgets.QDialog):
         self.setWindowTitle(f"Select correct match: {os.path.split(path)[1]}")
 
     def populate_table(self) -> None:
-
         self.twList.setRowCount(0)
 
         self.twList.setSortingEnabled(False)
@@ -136,13 +143,15 @@ class MatchSelectionWindow(QtWidgets.QDialog):
         self.accept()
 
     def current_item_changed(self, curr: QtCore.QModelIndex, prev: QtCore.QModelIndex) -> None:
-
         if curr is None:
             return
         if prev is not None and prev.row() == curr.row():
             return
 
-        self.altCoverWidget.set_issue_id(self.current_match()["issue_id"])
+        self.altCoverWidget.set_issue_details(
+            self.current_match()["issue_id"],
+            [self.current_match()["image_url"], *self.current_match()["alt_image_urls"]],
+        )
         if self.current_match()["description"] is None:
             self.teDescription.setText("")
         else:

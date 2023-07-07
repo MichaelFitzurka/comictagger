@@ -1,6 +1,6 @@
 """A PyQT4 dialog to enter app settings"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,17 +20,22 @@ import logging
 import os
 import pathlib
 import platform
+from typing import Any, cast
 
+import settngs
 from PyQt5 import QtCore, QtGui, QtWidgets, uic
 
+import comictaggerlib.ui.talkeruigenerator
 from comicapi import utils
 from comicapi.genericmetadata import md_test
-from comictaggerlib.comiccacher import ComicCacher
-from comictaggerlib.comicvinetalker import ComicVineTalker
-from comictaggerlib.filerenamer import FileRenamer
+from comictaggerlib import ctsettings
+from comictaggerlib.ctsettings import ct_ns
+from comictaggerlib.ctversion import version
+from comictaggerlib.filerenamer import FileRenamer, Replacement, Replacements
 from comictaggerlib.imagefetcher import ImageFetcher
-from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.ui import ui_path
+from comictalker.comiccacher import ComicCacher
+from comictalker.comictalker import ComicTalker
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +133,9 @@ Spider-Geddon #1 - New Players; Check In
 
 
 class SettingsWindow(QtWidgets.QDialog):
-    def __init__(self, parent: QtWidgets.QWidget, settings: ComicTaggerSettings) -> None:
+    def __init__(
+        self, parent: QtWidgets.QWidget, config: settngs.Config[ct_ns], talkers: dict[str, ComicTalker]
+    ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ui_path / "settingswindow.ui", self)
@@ -137,7 +144,8 @@ class SettingsWindow(QtWidgets.QDialog):
             QtCore.Qt.WindowType(self.windowFlags() & ~QtCore.Qt.WindowType.WindowContextHelpButtonHint)
         )
 
-        self.settings = settings
+        self.config = config
+        self.talkers = talkers
         self.name = "Settings"
 
         if platform.system() == "Windows":
@@ -178,33 +186,102 @@ class SettingsWindow(QtWidgets.QDialog):
         self.leIssueNumPadding.setValidator(validator)
 
         self.leRenameTemplate.setToolTip(f"<pre>{html.escape(template_tooltip)}</pre>")
-        self.settings_to_form()
         self.rename_error: Exception | None = None
+
+        self.sources: dict = comictaggerlib.ui.talkeruigenerator.generate_source_option_tabs(
+            self.tComicTalkers, self.config, self.talkers
+        )
+        self.connect_signals()
+        self.settings_to_form()
         self.rename_test()
         self.dir_test()
 
+        # Set General as start tab
+        self.tabWidget.setCurrentIndex(0)
+
+    def connect_signals(self) -> None:
         self.btnBrowseRar.clicked.connect(self.select_rar)
         self.btnClearCache.clicked.connect(self.clear_cache)
         self.btnResetSettings.clicked.connect(self.reset_settings)
-        self.btnTestKey.clicked.connect(self.test_api_key)
         self.btnTemplateHelp.clicked.connect(self.show_template_help)
-        self.leRenameTemplate.textEdited.connect(self._rename_test)
-        self.cbxMoveFiles.clicked.connect(self.rename_test)
         self.cbxMoveFiles.clicked.connect(self.dir_test)
-        self.cbxRenameStrict.clicked.connect(self.rename_test)
         self.leDirectory.textEdited.connect(self.dir_test)
         self.cbxComplicatedParser.clicked.connect(self.switch_parser)
 
-    def rename_test(self) -> None:
+        self.btnAddLiteralReplacement.clicked.connect(self.addLiteralReplacement)
+        self.btnAddValueReplacement.clicked.connect(self.addValueReplacement)
+        self.btnRemoveLiteralReplacement.clicked.connect(self.removeLiteralReplacement)
+        self.btnRemoveValueReplacement.clicked.connect(self.removeValueReplacement)
+
+        self.leRenameTemplate.textEdited.connect(self.rename_test)
+        self.cbxMoveFiles.clicked.connect(self.rename_test)
+        self.cbxRenameStrict.clicked.connect(self.rename_test)
+        self.cbxSmartCleanup.clicked.connect(self.rename_test)
+        self.cbxChangeExtension.clicked.connect(self.rename_test)
+        self.leIssueNumPadding.textEdited.connect(self.rename_test)
+        self.twLiteralReplacements.cellChanged.connect(self.rename_test)
+        self.twValueReplacements.cellChanged.connect(self.rename_test)
+
+    def disconnect_signals(self) -> None:
+        self.btnAddLiteralReplacement.clicked.disconnect()
+        self.btnAddValueReplacement.clicked.disconnect()
+        self.btnBrowseRar.clicked.disconnect()
+        self.btnClearCache.clicked.disconnect()
+        self.btnRemoveLiteralReplacement.clicked.disconnect()
+        self.btnRemoveValueReplacement.clicked.disconnect()
+        self.btnResetSettings.clicked.disconnect()
+        self.btnTemplateHelp.clicked.disconnect()
+        self.cbxChangeExtension.clicked.disconnect()
+        self.cbxComplicatedParser.clicked.disconnect()
+        self.cbxMoveFiles.clicked.disconnect()
+        self.cbxRenameStrict.clicked.disconnect()
+        self.cbxSmartCleanup.clicked.disconnect()
+        self.leDirectory.textEdited.disconnect()
+        self.leIssueNumPadding.textEdited.disconnect()
+        self.leRenameTemplate.textEdited.disconnect()
+        self.twLiteralReplacements.cellChanged.disconnect()
+        self.twValueReplacements.cellChanged.disconnect()
+
+    def addLiteralReplacement(self) -> None:
+        self.insertRow(self.twLiteralReplacements, self.twLiteralReplacements.rowCount(), Replacement("", "", False))
+
+    def addValueReplacement(self) -> None:
+        self.insertRow(self.twValueReplacements, self.twValueReplacements.rowCount(), Replacement("", "", False))
+
+    def removeLiteralReplacement(self) -> None:
+        if self.twLiteralReplacements.currentRow() >= 0:
+            self.twLiteralReplacements.removeRow(self.twLiteralReplacements.currentRow())
+
+    def removeValueReplacement(self) -> None:
+        if self.twValueReplacements.currentRow() >= 0:
+            self.twValueReplacements.removeRow(self.twValueReplacements.currentRow())
+
+    def insertRow(self, table: QtWidgets.QTableWidget, row: int, replacement: Replacement) -> None:
+        find, replace, strict_only = replacement
+        table.insertRow(row)
+        table.setItem(row, 0, QtWidgets.QTableWidgetItem(find))
+        table.setItem(row, 1, QtWidgets.QTableWidgetItem(replace))
+        tmp = QtWidgets.QTableWidgetItem()
+        if strict_only:
+            tmp.setCheckState(QtCore.Qt.Checked)
+        else:
+            tmp.setCheckState(QtCore.Qt.Unchecked)
+        table.setItem(row, 2, tmp)
+
+    def rename_test(self, *args: Any, **kwargs: Any) -> None:
         self._rename_test(self.leRenameTemplate.text())
 
     def dir_test(self) -> None:
         self.lblDir.setText(
-            str(pathlib.Path(self.leDirectory.text().strip()).absolute()) if self.cbxMoveFiles.isChecked() else ""
+            str(pathlib.Path(self.leDirectory.text().strip()).resolve()) if self.cbxMoveFiles.isChecked() else ""
         )
 
     def _rename_test(self, template: str) -> None:
-        fr = FileRenamer(md_test, platform="universal" if self.cbxRenameStrict.isChecked() else "auto")
+        fr = FileRenamer(
+            md_test,
+            platform="universal" if self.cbxRenameStrict.isChecked() else "auto",
+            replacements=self.get_replacements(),
+        )
         fr.move = self.cbxMoveFiles.isChecked()
         fr.set_template(template)
         fr.set_issue_zero_padding(int(self.leIssueNumPadding.text()))
@@ -224,54 +301,89 @@ class SettingsWindow(QtWidgets.QDialog):
         self.cbxRemovePublisher.setEnabled(complicated)
 
     def settings_to_form(self) -> None:
+        self.disconnect_signals()
         # Copy values from settings to form
-        self.leRarExePath.setText(self.settings.rar_exe_path)
-        self.sbNameMatchIdentifyThresh.setValue(self.settings.id_series_match_identify_thresh)
-        self.sbNameMatchSearchThresh.setValue(self.settings.id_series_match_search_thresh)
-        self.tePublisherFilter.setPlainText(self.settings.id_publisher_filter)
+        if "archiver" in self.config[1] and "rar" in self.config[1]["archiver"].v:
+            self.leRarExePath.setText(getattr(self.config[0], self.config[1]["archiver"].v["rar"].internal_name))
+        else:
+            self.leRarExePath.setEnabled(False)
+        self.sbNameMatchIdentifyThresh.setValue(self.config[0].identifier_series_match_identify_thresh)
+        self.sbNameMatchSearchThresh.setValue(self.config[0].identifier_series_match_search_thresh)
+        self.tePublisherFilter.setPlainText("\n".join(self.config[0].identifier_publisher_filter))
 
-        self.cbxCheckForNewVersion.setChecked(self.settings.check_for_new_version)
+        self.cbxCheckForNewVersion.setChecked(self.config[0].general_check_for_new_version)
 
-        self.cbxComplicatedParser.setChecked(self.settings.complicated_parser)
-        self.cbxRemoveC2C.setChecked(self.settings.remove_c2c)
-        self.cbxRemoveFCBD.setChecked(self.settings.remove_fcbd)
-        self.cbxRemovePublisher.setChecked(self.settings.remove_publisher)
+        self.cbxComplicatedParser.setChecked(self.config[0].filename_complicated_parser)
+        self.cbxRemoveC2C.setChecked(self.config[0].filename_remove_c2c)
+        self.cbxRemoveFCBD.setChecked(self.config[0].filename_remove_fcbd)
+        self.cbxRemovePublisher.setChecked(self.config[0].filename_remove_publisher)
         self.switch_parser()
 
-        self.cbxUseSeriesStartAsVolume.setChecked(self.settings.use_series_start_as_volume)
-        self.cbxClearFormBeforePopulating.setChecked(self.settings.clear_form_before_populating_from_cv)
-        self.cbxRemoveHtmlTables.setChecked(self.settings.remove_html_tables)
+        self.cbxClearFormBeforePopulating.setChecked(self.config[0].identifier_clear_form_before_populating)
+        self.cbxUseFilter.setChecked(self.config[0].identifier_always_use_publisher_filter)
+        self.cbxSortByYear.setChecked(self.config[0].identifier_sort_series_by_year)
+        self.cbxExactMatches.setChecked(self.config[0].identifier_exact_series_matches_first)
 
-        self.cbxUseFilter.setChecked(self.settings.always_use_publisher_filter)
-        self.cbxSortByYear.setChecked(self.settings.sort_series_by_year)
-        self.cbxExactMatches.setChecked(self.settings.exact_series_matches_first)
+        self.cbxAssumeLoneCreditIsPrimary.setChecked(self.config[0].cbl_assume_lone_credit_is_primary)
+        self.cbxCopyCharactersToTags.setChecked(self.config[0].cbl_copy_characters_to_tags)
+        self.cbxCopyTeamsToTags.setChecked(self.config[0].cbl_copy_teams_to_tags)
+        self.cbxCopyLocationsToTags.setChecked(self.config[0].cbl_copy_locations_to_tags)
+        self.cbxCopyStoryArcsToTags.setChecked(self.config[0].cbl_copy_storyarcs_to_tags)
+        self.cbxCopyNotesToComments.setChecked(self.config[0].cbl_copy_notes_to_comments)
+        self.cbxCopyWebLinkToComments.setChecked(self.config[0].cbl_copy_weblink_to_comments)
+        self.cbxApplyCBLTransformOnCVIMport.setChecked(self.config[0].cbl_apply_transform_on_import)
+        self.cbxApplyCBLTransformOnBatchOperation.setChecked(self.config[0].cbl_apply_transform_on_bulk_operation)
 
-        self.leKey.setText(self.settings.cv_api_key)
-        self.leURL.setText(self.settings.cv_url)
+        self.leRenameTemplate.setText(self.config[0].rename_template)
+        self.leIssueNumPadding.setText(str(self.config[0].rename_issue_number_padding))
+        self.cbxSmartCleanup.setChecked(self.config[0].rename_use_smart_string_cleanup)
+        self.cbxChangeExtension.setChecked(self.config[0].rename_set_extension_based_on_archive)
+        self.cbxMoveFiles.setChecked(self.config[0].rename_move_to_dir)
+        self.leDirectory.setText(self.config[0].rename_dir)
+        self.cbxRenameStrict.setChecked(self.config[0].rename_strict)
 
-        self.cbxAssumeLoneCreditIsPrimary.setChecked(self.settings.assume_lone_credit_is_primary)
-        self.cbxCopyCharactersToTags.setChecked(self.settings.copy_characters_to_tags)
-        self.cbxCopyTeamsToTags.setChecked(self.settings.copy_teams_to_tags)
-        self.cbxCopyLocationsToTags.setChecked(self.settings.copy_locations_to_tags)
-        self.cbxCopyStoryArcsToTags.setChecked(self.settings.copy_storyarcs_to_tags)
-        self.cbxCopyNotesToComments.setChecked(self.settings.copy_notes_to_comments)
-        self.cbxCopyWebLinkToComments.setChecked(self.settings.copy_weblink_to_comments)
-        self.cbxApplyCBLTransformOnCVIMport.setChecked(self.settings.apply_cbl_transform_on_cv_import)
-        self.cbxApplyCBLTransformOnBatchOperation.setChecked(self.settings.apply_cbl_transform_on_bulk_operation)
+        for table, replacments in zip(
+            (self.twLiteralReplacements, self.twValueReplacements), self.config[0].rename_replacements
+        ):
+            table.clearContents()
+            for i in reversed(range(table.rowCount())):
+                table.removeRow(i)
+            for row, replacement in enumerate(replacments):
+                self.insertRow(table, row, replacement)
 
-        self.leRenameTemplate.setText(self.settings.rename_template)
-        self.leIssueNumPadding.setText(str(self.settings.rename_issue_number_padding))
-        self.cbxSmartCleanup.setChecked(self.settings.rename_use_smart_string_cleanup)
-        self.cbxChangeExtension.setChecked(self.settings.rename_extension_based_on_archive)
-        self.cbxMoveFiles.setChecked(self.settings.rename_move_dir)
-        self.leDirectory.setText(self.settings.rename_dir)
-        self.cbxRenameStrict.setChecked(self.settings.rename_strict)
+        # Set talker values
+        comictaggerlib.ui.talkeruigenerator.settings_to_talker_form(self.sources, self.config)
+
+        self.connect_signals()
+
+    def get_replacements(self) -> Replacements:
+        literal_replacements = []
+        value_replacements = []
+        for row in range(self.twLiteralReplacements.rowCount()):
+            if self.twLiteralReplacements.item(row, 0).text():
+                literal_replacements.append(
+                    Replacement(
+                        self.twLiteralReplacements.item(row, 0).text(),
+                        self.twLiteralReplacements.item(row, 1).text(),
+                        self.twLiteralReplacements.item(row, 2).checkState() == QtCore.Qt.Checked,
+                    )
+                )
+        for row in range(self.twValueReplacements.rowCount()):
+            if self.twValueReplacements.item(row, 0).text():
+                value_replacements.append(
+                    Replacement(
+                        self.twValueReplacements.item(row, 0).text(),
+                        self.twValueReplacements.item(row, 1).text(),
+                        self.twValueReplacements.item(row, 2).checkState() == QtCore.Qt.Checked,
+                    )
+                )
+        return Replacements(literal_replacements, value_replacements)
 
     def accept(self) -> None:
         self.rename_test()
         if self.rename_error is not None:
             if isinstance(self.rename_error, ValueError):
-                logger.exception("Invalid format string: %s", self.settings.rename_template)
+                logger.exception("Invalid format string: %s", self.config[0].rename_template)
                 QtWidgets.QMessageBox.critical(
                     self,
                     "Invalid format string!",
@@ -285,7 +397,7 @@ class SettingsWindow(QtWidgets.QDialog):
                 return
             else:
                 logger.exception(
-                    "Formatter failure: %s metadata: %s", self.settings.rename_template, self.renamer.metadata
+                    "Formatter failure: %s metadata: %s", self.config[0].rename_template, self.renamer.metadata
                 )
                 QtWidgets.QMessageBox.critical(
                     self,
@@ -298,81 +410,82 @@ class SettingsWindow(QtWidgets.QDialog):
                 )
 
         # Copy values from form to settings and save
-        self.settings.rar_exe_path = str(self.leRarExePath.text())
+        if "archiver" in self.config[1] and "rar" in self.config[1]["archiver"].v:
+            setattr(self.config[0], self.config[1]["archiver"].v["rar"].internal_name, str(self.leRarExePath.text()))
 
-        # make sure rar program is now in the path for the rar class
-        if self.settings.rar_exe_path:
-            utils.add_to_path(os.path.dirname(self.settings.rar_exe_path))
+            # make sure rar program is now in the path for the rar class
+            if self.config[0].archiver_rar:  # type: ignore[attr-defined]
+                utils.add_to_path(os.path.dirname(str(self.leRarExePath.text())))
 
         if not str(self.leIssueNumPadding.text()).isdigit():
             self.leIssueNumPadding.setText("0")
 
-        self.settings.check_for_new_version = self.cbxCheckForNewVersion.isChecked()
+        self.config[0].general_check_for_new_version = self.cbxCheckForNewVersion.isChecked()
 
-        self.settings.id_series_match_identify_thresh = self.sbNameMatchIdentifyThresh.value()
-        self.settings.id_series_match_search_thresh = self.sbNameMatchSearchThresh.value()
-        self.settings.id_publisher_filter = str(self.tePublisherFilter.toPlainText())
+        self.config[0].identifier_series_match_identify_thresh = self.sbNameMatchIdentifyThresh.value()
+        self.config[0].identifier_series_match_search_thresh = self.sbNameMatchSearchThresh.value()
+        self.config[0].identifier_publisher_filter = [
+            x.strip() for x in str(self.tePublisherFilter.toPlainText()).splitlines() if x.strip()
+        ]
 
-        self.settings.complicated_parser = self.cbxComplicatedParser.isChecked()
-        self.settings.remove_c2c = self.cbxRemoveC2C.isChecked()
-        self.settings.remove_fcbd = self.cbxRemoveFCBD.isChecked()
-        self.settings.remove_publisher = self.cbxRemovePublisher.isChecked()
+        self.config[0].filename_complicated_parser = self.cbxComplicatedParser.isChecked()
+        self.config[0].filename_remove_c2c = self.cbxRemoveC2C.isChecked()
+        self.config[0].filename_remove_fcbd = self.cbxRemoveFCBD.isChecked()
+        self.config[0].filename_remove_publisher = self.cbxRemovePublisher.isChecked()
 
-        self.settings.use_series_start_as_volume = self.cbxUseSeriesStartAsVolume.isChecked()
-        self.settings.clear_form_before_populating_from_cv = self.cbxClearFormBeforePopulating.isChecked()
-        self.settings.remove_html_tables = self.cbxRemoveHtmlTables.isChecked()
+        self.config[0].identifier_clear_form_before_populating = self.cbxClearFormBeforePopulating.isChecked()
+        self.config[0].identifier_always_use_publisher_filter = self.cbxUseFilter.isChecked()
+        self.config[0].identifier_sort_series_by_year = self.cbxSortByYear.isChecked()
+        self.config[0].identifier_exact_series_matches_first = self.cbxExactMatches.isChecked()
 
-        self.settings.always_use_publisher_filter = self.cbxUseFilter.isChecked()
-        self.settings.sort_series_by_year = self.cbxSortByYear.isChecked()
-        self.settings.exact_series_matches_first = self.cbxExactMatches.isChecked()
+        self.config[0].cbl_assume_lone_credit_is_primary = self.cbxAssumeLoneCreditIsPrimary.isChecked()
+        self.config[0].cbl_copy_characters_to_tags = self.cbxCopyCharactersToTags.isChecked()
+        self.config[0].cbl_copy_teams_to_tags = self.cbxCopyTeamsToTags.isChecked()
+        self.config[0].cbl_copy_locations_to_tags = self.cbxCopyLocationsToTags.isChecked()
+        self.config[0].cbl_copy_storyarcs_to_tags = self.cbxCopyStoryArcsToTags.isChecked()
+        self.config[0].cbl_copy_notes_to_comments = self.cbxCopyNotesToComments.isChecked()
+        self.config[0].cbl_copy_weblink_to_comments = self.cbxCopyWebLinkToComments.isChecked()
+        self.config[0].cbl_apply_transform_on_import = self.cbxApplyCBLTransformOnCVIMport.isChecked()
+        self.config[0].cbl_apply_transform_on_bulk_operation = self.cbxApplyCBLTransformOnBatchOperation.isChecked()
 
-        self.settings.cv_api_key = self.leKey.text().strip()
-        ComicVineTalker.api_key = self.settings.cv_api_key
-        self.settings.cv_url = self.leURL.text().strip()
-        ComicVineTalker.api_base_url = self.settings.cv_url
-        self.settings.assume_lone_credit_is_primary = self.cbxAssumeLoneCreditIsPrimary.isChecked()
-        self.settings.copy_characters_to_tags = self.cbxCopyCharactersToTags.isChecked()
-        self.settings.copy_teams_to_tags = self.cbxCopyTeamsToTags.isChecked()
-        self.settings.copy_locations_to_tags = self.cbxCopyLocationsToTags.isChecked()
-        self.settings.copy_storyarcs_to_tags = self.cbxCopyStoryArcsToTags.isChecked()
-        self.settings.copy_notes_to_comments = self.cbxCopyNotesToComments.isChecked()
-        self.settings.copy_weblink_to_comments = self.cbxCopyWebLinkToComments.isChecked()
-        self.settings.apply_cbl_transform_on_cv_import = self.cbxApplyCBLTransformOnCVIMport.isChecked()
-        self.settings.apply_cbl_transform_on_bulk_operation = self.cbxApplyCBLTransformOnBatchOperation.isChecked()
+        self.config[0].rename_template = str(self.leRenameTemplate.text())
+        self.config[0].rename_issue_number_padding = int(self.leIssueNumPadding.text())
+        self.config[0].rename_use_smart_string_cleanup = self.cbxSmartCleanup.isChecked()
+        self.config[0].rename_set_extension_based_on_archive = self.cbxChangeExtension.isChecked()
+        self.config[0].rename_move_to_dir = self.cbxMoveFiles.isChecked()
+        self.config[0].rename_dir = self.leDirectory.text()
 
-        self.settings.rename_template = str(self.leRenameTemplate.text())
-        self.settings.rename_issue_number_padding = int(self.leIssueNumPadding.text())
-        self.settings.rename_use_smart_string_cleanup = self.cbxSmartCleanup.isChecked()
-        self.settings.rename_extension_based_on_archive = self.cbxChangeExtension.isChecked()
-        self.settings.rename_move_dir = self.cbxMoveFiles.isChecked()
-        self.settings.rename_dir = self.leDirectory.text()
+        self.config[0].rename_strict = self.cbxRenameStrict.isChecked()
+        self.config[0].rename_replacements = self.get_replacements()
 
-        self.settings.rename_strict = self.cbxRenameStrict.isChecked()
+        # Read settings from talker tabs
+        comictaggerlib.ui.talkeruigenerator.form_settings_to_config(self.sources, self.config)
 
-        self.settings.save()
+        self.update_talkers_config()
+
+        settngs.save_file(self.config, self.config[0].runtime_config.user_config_dir / "settings.json")
+        self.parent().config = self.config
         QtWidgets.QDialog.accept(self)
+
+    def update_talkers_config(self) -> None:
+        ctsettings.talkers = self.talkers
+        self.config = ctsettings.plugin.validate_talker_settings(self.config)
+        del ctsettings.talkers
 
     def select_rar(self) -> None:
         self.select_file(self.leRarExePath, "RAR")
 
     def clear_cache(self) -> None:
-        ImageFetcher().clear_cache()
-        ComicCacher().clear_cache()
+        ImageFetcher(self.config[0].runtime_config.user_cache_dir).clear_cache()
+        ComicCacher(self.config[0].runtime_config.user_cache_dir, version).clear_cache()
         QtWidgets.QMessageBox.information(self, self.name, "Cache has been cleared.")
 
-    def test_api_key(self) -> None:
-        if ComicVineTalker().test_key(self.leKey.text().strip(), self.leURL.text().strip()):
-            QtWidgets.QMessageBox.information(self, "API Key Test", "Key is valid!")
-        else:
-            QtWidgets.QMessageBox.warning(self, "API Key Test", "Key is NOT valid.")
-
     def reset_settings(self) -> None:
-        self.settings.reset()
+        self.config = cast(settngs.Config[ct_ns], settngs.get_namespace(settngs.defaults(self.config[1])))
         self.settings_to_form()
         QtWidgets.QMessageBox.information(self, self.name, self.name + " have been returned to default values.")
 
     def select_file(self, control: QtWidgets.QLineEdit, name: str) -> None:
-
         dialog = QtWidgets.QFileDialog(self)
         dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFile)
 
@@ -387,9 +500,9 @@ class SettingsWindow(QtWidgets.QDialog):
 
         dialog.setDirectory(os.path.dirname(str(control.text())))
         if name == "RAR":
-            dialog.setWindowTitle("Find " + name + " program")
+            dialog.setWindowTitle(f"Find {name} program")
         else:
-            dialog.setWindowTitle("Find " + name + " library")
+            dialog.setWindowTitle(f"Find {name} library")
 
         if dialog.exec():
             file_list = dialog.selectedFiles()
