@@ -1,6 +1,6 @@
 """The main window of the ComicTagger app"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 # limitations under the License.
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import operator
@@ -28,10 +27,11 @@ import sys
 import webbrowser
 from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, Callable, cast
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import natsort
+import settngs
 from PyQt5 import QtCore, QtGui, QtNetwork, QtWidgets, uic
 
 from comicapi import utils
@@ -46,9 +46,9 @@ from comictaggerlib.autotagmatchwindow import AutoTagMatchWindow
 from comictaggerlib.autotagprogresswindow import AutoTagProgressWindow
 from comictaggerlib.autotagstartwindow import AutoTagStartWindow
 from comictaggerlib.cbltransformer import CBLTransformer
-from comictaggerlib.comicvinetalker import ComicVineTalker, ComicVineTalkerException
 from comictaggerlib.coverimagewidget import CoverImageWidget
 from comictaggerlib.crediteditorwindow import CreditEditorWindow
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.exportwindow import ExportConflictOpts, ExportWindow
 from comictaggerlib.fileselectionlist import FileInfo, FileSelectionList
 from comictaggerlib.graphics import graphics_path
@@ -59,12 +59,12 @@ from comictaggerlib.pagebrowser import PageBrowserWindow
 from comictaggerlib.pagelisteditor import PageListEditor
 from comictaggerlib.renamewindow import RenameWindow
 from comictaggerlib.resulttypes import IssueResult, MultipleMatch, OnlineMatchResults
-from comictaggerlib.settings import ComicTaggerSettings
+from comictaggerlib.seriesselectionwindow import SeriesSelectionWindow
 from comictaggerlib.settingswindow import SettingsWindow
 from comictaggerlib.ui import ui_path
 from comictaggerlib.ui.qtutils import center_window_on_parent, reduce_widget_font_size
 from comictaggerlib.versionchecker import VersionChecker
-from comictaggerlib.volumeselectionwindow import VolumeSelectionWindow
+from comictalker.comictalker import ComicTalker, TalkerError
 
 logger = logging.getLogger(__name__)
 
@@ -80,23 +80,24 @@ class TaggerWindow(QtWidgets.QMainWindow):
     def __init__(
         self,
         file_list: list[str],
-        settings: ComicTaggerSettings,
+        config: settngs.Config[ct_ns],
+        talkers: dict[str, ComicTalker],
         parent: QtWidgets.QWidget | None = None,
-        opts: argparse.Namespace | None = None,
     ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ui_path / "taggerwindow.ui", self)
-        self.settings = settings
+        self.config = config
+        self.talkers = talkers
         self.log_window = self.setup_logger()
 
         # prevent multiple instances
         socket = QtNetwork.QLocalSocket(self)
-        socket.connectToServer(settings.install_id)
+        socket.connectToServer(config[0].internal_install_id)
         alive = socket.waitForConnected(3000)
         if alive:
             logger.setLevel(logging.INFO)
-            logger.info("Another application with key [%s] is already running", settings.install_id)
+            logger.info("Another application with key [%s] is already running", config[0].internal_install_id)
             # send file list to other instance
             if file_list:
                 socket.write(pickle.dumps(file_list))
@@ -108,20 +109,20 @@ class TaggerWindow(QtWidgets.QMainWindow):
             # listen on a socket to prevent multiple instances
             self.socketServer = QtNetwork.QLocalServer(self)
             self.socketServer.newConnection.connect(self.on_incoming_socket_connection)
-            ok = self.socketServer.listen(settings.install_id)
+            ok = self.socketServer.listen(config[0].internal_install_id)
             if not ok:
                 if self.socketServer.serverError() == QtNetwork.QAbstractSocket.SocketError.AddressInUseError:
-                    self.socketServer.removeServer(settings.install_id)
-                    ok = self.socketServer.listen(settings.install_id)
+                    self.socketServer.removeServer(config[0].internal_install_id)
+                    ok = self.socketServer.listen(config[0].internal_install_id)
                 if not ok:
                     logger.error(
                         "Cannot start local socket with key [%s]. Reason: %s",
-                        settings.install_id,
+                        config[0].internal_install_id,
                         self.socketServer.errorString(),
                     )
                     sys.exit()
 
-        self.archiveCoverWidget = CoverImageWidget(self.coverImageContainer, CoverImageWidget.ArchiveMode)
+        self.archiveCoverWidget = CoverImageWidget(self.coverImageContainer, CoverImageWidget.ArchiveMode, None, None)
         grid_layout = QtWidgets.QGridLayout(self.coverImageContainer)
         grid_layout.addWidget(self.archiveCoverWidget)
         grid_layout.setContentsMargins(0, 0, 0, 0)
@@ -130,14 +131,14 @@ class TaggerWindow(QtWidgets.QMainWindow):
         grid_layout = QtWidgets.QGridLayout(self.tabPages)
         grid_layout.addWidget(self.page_list_editor)
 
-        self.fileSelectionList = FileSelectionList(self.widgetListHolder, self.settings, self.dirty_flag_verification)
+        self.fileSelectionList = FileSelectionList(self.widgetListHolder, self.config[0], self.dirty_flag_verification)
         grid_layout = QtWidgets.QGridLayout(self.widgetListHolder)
         grid_layout.addWidget(self.fileSelectionList)
 
         self.fileSelectionList.selectionChanged.connect(self.file_list_selection_changed)
         self.fileSelectionList.listCleared.connect(self.file_list_cleared)
         self.fileSelectionList.set_sorting(
-            self.settings.last_filelist_sorted_column, QtCore.Qt.SortOrder(self.settings.last_filelist_sorted_order)
+            self.config[0].internal_sort_column, QtCore.Qt.SortOrder(self.config[0].internal_sort_direction)
         )
 
         # we can't specify relative font sizes in the UI designer, so
@@ -154,14 +155,14 @@ class TaggerWindow(QtWidgets.QMainWindow):
         self.scrollAreaWidgetContents.adjustSize()
 
         self.setWindowIcon(QtGui.QIcon(str(graphics_path / "app.png")))
-        # TODO: this needs to be looked at
-        if opts is not None and opts.type:
-            # respect the command line option tag type
-            settings.last_selected_save_data_style = opts.type[0]
-            settings.last_selected_load_data_style = opts.type[0]
 
-        self.save_data_style = settings.last_selected_save_data_style
-        self.load_data_style = settings.last_selected_load_data_style
+        if config[0].runtime_type and isinstance(config[0].runtime_type[0], int):
+            # respect the command line option tag type
+            config[0].internal_save_data_style = config[0].runtime_type[0]
+            config[0].internal_load_data_style = config[0].runtime_type[0]
+
+        self.save_data_style = config[0].internal_save_data_style
+        self.load_data_style = config[0].internal_load_data_style
 
         self.setAcceptDrops(True)
         self.config_menus()
@@ -226,8 +227,8 @@ class TaggerWindow(QtWidgets.QMainWindow):
 
         self.show()
         self.set_app_position()
-        if self.settings.last_form_side_width != -1:
-            self.splitter.setSizes([self.settings.last_form_side_width, self.settings.last_list_side_width])
+        if self.config[0].internal_form_width != -1:
+            self.splitter.setSizes([self.config[0].internal_form_width, self.config[0].internal_list_width])
         self.raise_()
         QtCore.QCoreApplication.processEvents()
         self.resizeEvent(None)
@@ -244,25 +245,35 @@ class TaggerWindow(QtWidgets.QMainWindow):
         if len(file_list) != 0:
             self.fileSelectionList.add_path_list(file_list)
 
-        if self.settings.show_disclaimer:
+        if self.config[0].dialog_show_disclaimer:
             checked = OptionalMessageDialog.msg(
                 self,
                 "Welcome!",
                 """
-Thanks for trying ComicTagger!<br><br>
-Be aware that this is beta-level software, and consider it experimental.
-You should use it very carefully when modifying your data files.  As the
-license says, it's "AS IS!"<br><br>
-Also, be aware that writing tags to comic archives will change their file hashes,
-which has implications with respect to other software packages.  It's best to
-use ComicTagger on local copies of your comics.<br><br>
-Have fun!
-""",
+                Thanks for trying ComicTagger!<br><br>
+                Be aware that this is beta-level software, and consider it experimental.
+                You should use it very carefully when modifying your data files.  As the
+                license says, it's "AS IS!"<br><br>
+                Also, be aware that writing tags to comic archives will change their file hashes,
+                which has implications with respect to other software packages.  It's best to
+                use ComicTagger on local copies of your comics.<br><br>
+                COMIC VINE NOTE: Using the default API key will serverly limit search and tagging
+                times. A personal API key will allow for a <b>5 times increase</b> in online search speed. See the
+                <a href='https://github.com/comictagger/comictagger/wiki/UserGuide#comic-vine'>Wiki page</a>
+                for more information.<br><br>
+                Have fun!
+                """,
             )
-            self.settings.show_disclaimer = not checked
+            self.config[0].dialog_show_disclaimer = not checked
 
-        if self.settings.check_for_new_version:
-            pass
+        if self.config[0].general_check_for_new_version:
+            self.check_latest_version_online()
+
+    def current_talker(self) -> ComicTalker:
+        if self.config[0].talker_source in self.talkers:
+            return self.talkers[self.config[0].talker_source]
+        logger.error("Could not find the '%s' talker", self.config[0].talker_source)
+        raise SystemExit(2)
 
     def open_file_event(self, url: QtCore.QUrl) -> None:
         logger.info(url.toLocalFile())
@@ -274,7 +285,7 @@ Have fun!
 
     def setup_logger(self) -> ApplicationLogWindow:
         try:
-            current_logs = (ComicTaggerSettings.get_settings_folder() / "logs" / "ComicTagger.log").read_text("utf-8")
+            current_logs = (self.config[0].runtime_config.user_log_dir / "ComicTagger.log").read_text("utf-8")
         except Exception:
             current_logs = ""
         root_logger = logging.getLogger()
@@ -287,7 +298,6 @@ Have fun!
         return qapplogwindow
 
     def reset_app(self) -> None:
-
         self.archiveCoverWidget.clear()
         self.comic_archive = None
         self.dirty_flag = False
@@ -303,7 +313,6 @@ Have fun!
         self.page_loader = None
 
     def update_app_title(self) -> None:
-
         self.setWindowIcon(QtGui.QIcon(str(graphics_path / "app.png")))
 
         if self.comic_archive is None:
@@ -321,7 +330,6 @@ Have fun!
             self.setWindowTitle(f"{self.appName} - {self.comic_archive.path}{mod_str}{ro_str}")
 
     def config_menus(self) -> None:
-
         # File Menu
         self.actionExit.setShortcut("Ctrl+Q")
         self.actionExit.setStatusTip("Exit application")
@@ -475,12 +483,11 @@ Have fun!
         if non_zip_count != 0:
             EW = ExportWindow(
                 self,
-                self.settings,
                 (
                     f"You have selected {non_zip_count} archive(s) to export  to Zip format. "
                     """ New archives will be created in the same folder as the original.
 
-   Please choose options below, and select OK.
+   Please choose config below, and select OK.
    """
                 ),
             )
@@ -565,7 +572,6 @@ Have fun!
             dlg.exec()
 
     def about_app(self) -> None:
-
         website = "https://github.com/comictagger/comictagger"
         email = "comictagger@gmail.com"
         license_link = "http://www.apache.org/licenses/LICENSE-2.0"
@@ -592,7 +598,6 @@ Have fun!
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         self.droppedFiles = []
         if event.mimeData().hasUrls():
-
             # walk through the URL list and build a file list
             for url in event.mimeData().urls():
                 if url.isValid() and url.scheme() == "file":
@@ -608,10 +613,10 @@ Have fun!
     def actual_load_current_archive(self) -> None:
         if self.metadata.is_empty and self.comic_archive is not None:
             self.metadata = self.comic_archive.metadata_from_filename(
-                self.settings.complicated_parser,
-                self.settings.remove_c2c,
-                self.settings.remove_fcbd,
-                self.settings.remove_publisher,
+                self.config[0].filename_complicated_parser,
+                self.config[0].filename_remove_c2c,
+                self.config[0].filename_remove_fcbd,
+                self.config[0].filename_remove_publisher,
             )
         if len(self.metadata.pages) == 0 and self.comic_archive is not None:
             self.metadata.set_default_page_list(self.comic_archive.get_number_of_pages())
@@ -636,7 +641,6 @@ Have fun!
             self.archiveCoverWidget.set_archive(self.comic_archive, cover_idx)
 
     def update_menus(self) -> None:
-
         # First just disable all the questionable items
         self.actionAutoTag.setEnabled(False)
         self.actionCopyTags.setEnabled(False)
@@ -681,7 +685,6 @@ Have fun!
                 self.actionWrite_Tags.setEnabled(True)
 
     def update_info_box(self) -> None:
-
         ca = self.comic_archive
 
         if ca is None:
@@ -697,16 +700,7 @@ Have fun!
 
         self.lblFilename.setText(filename)
 
-        if ca.is_sevenzip():
-            self.lblArchiveType.setText("7Z archive")
-        elif ca.is_zip():
-            self.lblArchiveType.setText("ZIP archive")
-        elif ca.is_rar():
-            self.lblArchiveType.setText("RAR archive")
-        elif ca.is_folder():
-            self.lblArchiveType.setText("Folder archive")
-        else:
-            self.lblArchiveType.setText("")
+        self.lblArchiveType.setText(ca.archiver.name() + " archive")
 
         page_count = f" ({ca.get_number_of_pages()} pages)"
         self.lblPageCount.setText(page_count)
@@ -738,7 +732,6 @@ Have fun!
         self.connect_child_dirty_flag_signals(self.tabWidget)
 
     def connect_child_dirty_flag_signals(self, widget: QtCore.QObject) -> None:
-
         if isinstance(widget, QtWidgets.QLineEdit):
             widget.textEdited.connect(self.set_dirty_flag)
         if isinstance(widget, QtWidgets.QTextEdit):
@@ -767,7 +760,6 @@ Have fun!
         self.clear_dirty_flag()
 
     def clear_children(self, widget: QtCore.QObject) -> None:
-
         if isinstance(widget, (QtWidgets.QLineEdit, QtWidgets.QTextEdit)):
             widget.setText("")
         if isinstance(widget, QtWidgets.QComboBox):
@@ -909,40 +901,40 @@ Have fun!
         # copy the data from the form into the metadata
         md = GenericMetadata()
         md.is_empty = False
-        md.alternate_number = IssueString(self.leAltIssueNum.text()).as_string()
-        md.issue = IssueString(self.leIssueNum.text()).as_string()
-        md.issue_count = utils.xlate(self.leIssueCount.text(), True)
-        md.volume = utils.xlate(self.leVolumeNum.text(), True)
-        md.volume_count = utils.xlate(self.leVolumeCount.text(), True)
-        md.month = utils.xlate(self.lePubMonth.text(), True)
-        md.year = utils.xlate(self.lePubYear.text(), True)
-        md.day = utils.xlate(self.lePubDay.text(), True)
-        md.alternate_count = utils.xlate(self.leAltIssueCount.text(), True)
+        md.alternate_number = utils.xlate(IssueString(self.leAltIssueNum.text()).as_string())
+        md.issue = utils.xlate(IssueString(self.leIssueNum.text()).as_string())
+        md.issue_count = utils.xlate_int(self.leIssueCount.text())
+        md.volume = utils.xlate_int(self.leVolumeNum.text())
+        md.volume_count = utils.xlate_int(self.leVolumeCount.text())
+        md.month = utils.xlate_int(self.lePubMonth.text())
+        md.year = utils.xlate_int(self.lePubYear.text())
+        md.day = utils.xlate_int(self.lePubDay.text())
+        md.alternate_count = utils.xlate_int(self.leAltIssueCount.text())
 
-        md.series = self.leSeries.text()
-        md.title = self.leTitle.text()
-        md.publisher = self.lePublisher.text()
-        md.genre = self.leGenre.text()
-        md.imprint = self.leImprint.text()
-        md.comments = self.teComments.toPlainText()
-        md.notes = self.teNotes.toPlainText()
+        md.series = utils.xlate(self.leSeries.text())
+        md.title = utils.xlate(self.leTitle.text())
+        md.publisher = utils.xlate(self.lePublisher.text())
+        md.genre = utils.xlate(self.leGenre.text())
+        md.imprint = utils.xlate(self.leImprint.text())
+        md.comments = utils.xlate(self.teComments.toPlainText())
+        md.notes = utils.xlate(self.teNotes.toPlainText())
         md.maturity_rating = self.cbMaturityRating.currentText()
 
-        md.critical_rating = utils.xlate(self.dsbCriticalRating.cleanText(), is_float=True)
+        md.critical_rating = utils.xlate_float(self.dsbCriticalRating.cleanText())
         if md.critical_rating == 0.0:
             md.critical_rating = None
 
-        md.story_arc = self.leStoryArc.text()
-        md.scan_info = self.leScanInfo.text()
-        md.series_group = self.leSeriesGroup.text()
-        md.alternate_series = self.leAltSeries.text()
-        md.web_link = self.leWebLink.text()
-        md.characters = self.teCharacters.toPlainText()
-        md.teams = self.teTeams.toPlainText()
-        md.locations = self.teLocations.toPlainText()
+        md.story_arc = utils.xlate(self.leStoryArc.text())
+        md.scan_info = utils.xlate(self.leScanInfo.text())
+        md.series_group = utils.xlate(self.leSeriesGroup.text())
+        md.alternate_series = utils.xlate(self.leAltSeries.text())
+        md.web_link = utils.xlate(self.leWebLink.text())
+        md.characters = utils.xlate(self.teCharacters.toPlainText())
+        md.teams = utils.xlate(self.teTeams.toPlainText())
+        md.locations = utils.xlate(self.teLocations.toPlainText())
 
-        md.format = self.cbFormat.currentText()
-        md.country = self.cbCountry.currentText()
+        md.format = utils.xlate(self.cbFormat.currentText())
+        md.country = utils.xlate(self.cbCountry.currentText())
 
         md.language = utils.xlate(self.cbLanguage.itemData(self.cbLanguage.currentIndex()))
 
@@ -979,10 +971,10 @@ Have fun!
             # copy the form onto metadata object
             self.form_to_metadata()
             new_metadata = self.comic_archive.metadata_from_filename(
-                self.settings.complicated_parser,
-                self.settings.remove_c2c,
-                self.settings.remove_fcbd,
-                self.settings.remove_publisher,
+                self.config[0].filename_complicated_parser,
+                self.config[0].filename_remove_c2c,
+                self.config[0].filename_remove_fcbd,
+                self.config[0].filename_remove_publisher,
                 split_words,
             )
             if new_metadata is not None:
@@ -996,15 +988,14 @@ Have fun!
         self.select_file(folder_mode=True)
 
     def select_file(self, folder_mode: bool = False) -> None:
-
         dialog = QtWidgets.QFileDialog(self)
         if folder_mode:
             dialog.setFileMode(QtWidgets.QFileDialog.FileMode.Directory)
         else:
             dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFiles)
 
-        if self.settings.last_opened_folder is not None:
-            dialog.setDirectory(self.settings.last_opened_folder)
+        if self.config[0].internal_last_opened_folder is not None:
+            dialog.setDirectory(self.config[0].internal_last_opened_folder)
 
         if not folder_mode:
             archive_filter = "Comic archive files (*.cbz *.zip *.cbr *.rar *.cb7 *.7z)"
@@ -1026,12 +1017,14 @@ Have fun!
         self.query_online(autoselect=False, literal=True)
 
     def query_online(self, autoselect: bool = False, literal: bool = False) -> None:
-
         issue_number = str(self.leIssueNum.text()).strip()
 
+        # Only need this check is the source has issue level data.
         if autoselect and issue_number == "":
             QtWidgets.QMessageBox.information(
-                self, "Automatic Identify Search", "Can't auto-identify without an issue number (yet!)"
+                self,
+                "Automatic Identify Search",
+                "Can't auto-identify without an issue number. The auto-tag function has the 'If no issue number, assume \"1\"' option if desired.",
             )
             return
 
@@ -1041,20 +1034,21 @@ Have fun!
             QtWidgets.QMessageBox.information(self, "Online Search", "Need to enter a series name to search.")
             return
 
-        year = utils.xlate(self.lePubYear.text(), True)
+        year = utils.xlate_int(self.lePubYear.text())
 
-        issue_count = utils.xlate(self.leIssueCount.text(), True)
+        issue_count = utils.xlate_int(self.leIssueCount.text())
 
         cover_index_list = self.metadata.get_cover_page_index_list()
-        selector = VolumeSelectionWindow(
+        selector = SeriesSelectionWindow(
             self,
             series_name,
             issue_number,
             year,
             issue_count,
             cover_index_list,
-            cast(ComicArchive, self.comic_archive),
-            self.settings,
+            self.comic_archive,
+            self.config[0],
+            self.current_talker(),
             autoselect,
             literal,
         )
@@ -1065,34 +1059,30 @@ Have fun!
         selector.exec()
 
         if selector.result():
-            # we should now have a volume ID
+            # we should now have a series ID
             QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.CursorShape.WaitCursor))
 
             # copy the form onto metadata object
             self.form_to_metadata()
 
             try:
-                comic_vine = ComicVineTalker(self.settings.id_series_match_search_thresh)
-                new_metadata = comic_vine.fetch_issue_data(selector.volume_id, selector.issue_number, self.settings)
-            except ComicVineTalkerException as e:
+                new_metadata = self.current_talker().fetch_comic_data(
+                    issue_id=selector.issue_id, series_id=selector.series_id, issue_number=selector.issue_number
+                )
+            except TalkerError as e:
                 QtWidgets.QApplication.restoreOverrideCursor()
-                if e.code == ComicVineTalkerException.RateLimit:
-                    QtWidgets.QMessageBox.critical(self, "Comic Vine Error", ComicVineTalker.get_rate_limit_message())
-                else:
-                    QtWidgets.QMessageBox.critical(
-                        self, "Network Issue", "Could not connect to Comic Vine to get issue details.!"
-                    )
+                QtWidgets.QMessageBox.critical(self, f"{e.source} {e.code_name} Error", f"{e}")
             else:
                 QtWidgets.QApplication.restoreOverrideCursor()
                 if new_metadata is not None:
-                    if self.settings.apply_cbl_transform_on_cv_import:
-                        new_metadata = CBLTransformer(new_metadata, self.settings).apply()
+                    if self.config[0].cbl_apply_transform_on_import:
+                        new_metadata = CBLTransformer(new_metadata, self.config[0]).apply()
 
-                    if self.settings.clear_form_before_populating_from_cv:
+                    if self.config[0].identifier_clear_form_before_populating:
                         self.clear_form()
 
                     notes = (
-                        f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on"
+                        f"Tagged with ComicTagger {ctversion.version} using info from {self.current_talker().name} on"
                         f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {new_metadata.issue_id}]"
                     )
                     self.metadata.overlay(
@@ -1143,7 +1133,7 @@ Have fun!
             "Change Tag Read Style", "If you change read tag style now, data in the form will be lost.  Are you sure?"
         ):
             self.load_data_style = self.cbLoadDataStyle.itemData(s)
-            self.settings.last_selected_load_data_style = self.load_data_style
+            self.config[0].internal_load_data_style = self.load_data_style
             self.update_menus()
             if self.comic_archive is not None:
                 self.load_archive(self.comic_archive)
@@ -1154,7 +1144,7 @@ Have fun!
 
     def set_save_data_style(self, s: int) -> None:
         self.save_data_style = self.cbSaveDataStyle.itemData(s)
-        self.settings.last_selected_save_data_style = self.save_data_style
+        self.config[0].internal_save_data_style = self.save_data_style
         self.update_style_tweaks()
         self.update_menus()
 
@@ -1293,7 +1283,6 @@ Have fun!
         self.twCredits.item(row, 0).setText("Yes")
 
     def modify_credits(self, edit: bool) -> None:
-
         if edit:
             row = self.twCredits.currentRow()
             role = self.twCredits.item(row, 1).text()
@@ -1372,16 +1361,15 @@ Have fun!
                 QtWidgets.QMessageBox.warning(self, self.tr("Web Link"), self.tr("Web Link is invalid."))
 
     def show_settings(self) -> None:
-
-        settingswin = SettingsWindow(self, self.settings)
+        settingswin = SettingsWindow(self, self.config, self.talkers)
         settingswin.setModal(True)
         settingswin.exec()
         settingswin.result()
 
     def set_app_position(self) -> None:
-        if self.settings.last_main_window_width != 0:
-            self.move(self.settings.last_main_window_x, self.settings.last_main_window_y)
-            self.resize(self.settings.last_main_window_width, self.settings.last_main_window_height)
+        if self.config[0].internal_window_width != 0:
+            self.move(self.config[0].internal_window_x, self.config[0].internal_window_y)
+            self.resize(self.config[0].internal_window_width, self.config[0].internal_window_height)
         else:
             screen = QtGui.QGuiApplication.primaryScreen().geometry()
             size = self.frameGeometry()
@@ -1403,7 +1391,6 @@ Have fun!
         self.update_style_tweaks()
 
     def populate_combo_boxes(self) -> None:
-
         # Add the entries to the tag style combobox
         self.cbLoadDataStyle.addItem("ComicBookLover", MetaDataStyle.CBI)
         self.cbLoadDataStyle.addItem("ComicRack", MetaDataStyle.CIX)
@@ -1415,13 +1402,13 @@ Have fun!
 
         # Add the entries to the country combobox
         self.cbCountry.addItem("", "")
-        for f in natsort.humansorted(utils.countries.items(), operator.itemgetter(1)):
+        for f in natsort.humansorted(utils.countries().items(), operator.itemgetter(1)):
             self.cbCountry.addItem(f[1], f[0])
 
         # Add the entries to the language combobox
         self.cbLanguage.addItem("", "")
 
-        for f in natsort.humansorted(utils.languages.items(), operator.itemgetter(1)):
+        for f in natsort.humansorted(utils.languages().items(), operator.itemgetter(1)):
             self.cbLanguage.addItem(f[1], f[0])
 
         # Add the entries to the manga combobox
@@ -1648,8 +1635,8 @@ Have fun!
                     if ca.has_metadata(src_style) and ca.is_writable():
                         md = ca.read_metadata(src_style)
 
-                        if dest_style == MetaDataStyle.CBI and self.settings.apply_cbl_transform_on_bulk_operation:
-                            md = CBLTransformer(md, self.settings).apply()
+                        if dest_style == MetaDataStyle.CBI and self.config[0].cbl_apply_transform_on_bulk_operation:
+                            md = CBLTransformer(md, self.config[0]).apply()
 
                         if not ca.write_metadata(md, dest_style):
                             failed_list.append(ca.path)
@@ -1676,25 +1663,22 @@ Have fun!
                 dlg.exec()
 
     def actual_issue_data_fetch(self, match: IssueResult) -> GenericMetadata:
-
-        # now get the particular issue data
-        cv_md = GenericMetadata()
+        # now get the particular issue data OR series data
+        ct_md = GenericMetadata()
         QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.CursorShape.WaitCursor))
 
         try:
-            comic_vine = ComicVineTalker(self.settings.id_series_match_search_thresh)
-            comic_vine.wait_for_rate_limit = self.settings.wait_and_retry_on_rate_limit
-            cv_md = comic_vine.fetch_issue_data(match["volume_id"], match["issue_number"], self.settings)
-        except ComicVineTalkerException:
-            logger.exception("Network error while getting issue details. Save aborted")
+            ct_md = self.current_talker().fetch_comic_data(match["issue_id"])
+        except TalkerError:
+            logger.exception("Save aborted.")
 
-        if not cv_md.is_empty:
-            if self.settings.apply_cbl_transform_on_cv_import:
-                cv_md = CBLTransformer(cv_md, self.settings).apply()
+        if not ct_md.is_empty:
+            if self.config[0].cbl_apply_transform_on_import:
+                ct_md = CBLTransformer(ct_md, self.config[0]).apply()
 
         QtWidgets.QApplication.restoreOverrideCursor()
 
-        return cv_md
+        return ct_md
 
     def auto_tag_log(self, text: str) -> None:
         IssueIdentifier.default_write_output(text)
@@ -1709,7 +1693,7 @@ Have fun!
         self, ca: ComicArchive, match_results: OnlineMatchResults, dlg: AutoTagStartWindow
     ) -> tuple[bool, OnlineMatchResults]:
         success = False
-        ii = IssueIdentifier(ca, self.settings)
+        ii = IssueIdentifier(ca, self.config[0], self.current_talker())
 
         # read in metadata, and parse file name if not there
         try:
@@ -1719,10 +1703,10 @@ Have fun!
             logger.error("Failed to load metadata for %s: %s", ca.path, e)
         if md.is_empty:
             md = ca.metadata_from_filename(
-                self.settings.complicated_parser,
-                self.settings.remove_c2c,
-                self.settings.remove_fcbd,
-                self.settings.remove_publisher,
+                self.config[0].filename_complicated_parser,
+                self.config[0].filename_remove_c2c,
+                self.config[0].filename_remove_fcbd,
+                self.config[0].filename_remove_publisher,
                 dlg.split_words,
             )
             if dlg.ignore_leading_digits_in_filename and md.series is not None:
@@ -1746,7 +1730,6 @@ Have fun!
                 md.issue = utils.xlate(md.volume)
         ii.set_additional_metadata(md)
         ii.only_use_additional_meta_data = True
-        ii.wait_and_retry_on_rate_limit = dlg.wait_and_retry_on_rate_limit
         ii.set_output_function(self.auto_tag_log)
         ii.cover_page_index = md.get_cover_page_index_list()[0]
         if self.atprogdialog is not None:
@@ -1795,21 +1778,21 @@ Have fun!
                 self.auto_tag_log("Online search: Low confidence match, but saving anyways, as indicated...\n")
 
             # now get the particular issue data
-            cv_md = self.actual_issue_data_fetch(matches[0])
-            if cv_md is None:
+            ct_md = self.actual_issue_data_fetch(matches[0])
+            if ct_md is None:
                 match_results.fetch_data_failures.append(str(ca.path.absolute()))
 
-            if cv_md is not None:
+            if ct_md is not None:
                 if dlg.cbxRemoveMetadata.isChecked():
-                    md = cv_md
+                    md = ct_md
                 else:
                     notes = (
-                        f"Tagged with ComicTagger {ctversion.version} using info from Comic Vine on"
-                        f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {cv_md.issue_id}]"
+                        f"Tagged with ComicTagger {ctversion.version} using info from {self.current_talker().name} on"
+                        f" {datetime.now():%Y-%m-%d %H:%M:%S}.  [Issue ID {ct_md.issue_id}]"
                     )
-                    md.overlay(cv_md.replace(notes=utils.combine_notes(md.notes, notes, "Tagged with ComicTagger")))
+                    md.overlay(ct_md.replace(notes=utils.combine_notes(md.notes, notes, "Tagged with ComicTagger")))
 
-                if self.settings.auto_imprint:
+                if self.config[0].identifier_auto_imprint:
                     md.fix_publisher()
 
                 if not ca.write_metadata(md, self.save_data_style):
@@ -1838,10 +1821,10 @@ Have fun!
 
         atstartdlg = AutoTagStartWindow(
             self,
-            self.settings,
+            self.config[0],
             (
                 f"You have selected {len(ca_list)} archive(s) to automatically identify and write {MetaDataStyle.name[style]} tags to."
-                "\n\nPlease choose options below, and select OK to Auto-Tag."
+                "\n\nPlease choose config below, and select OK to Auto-Tag."
             ),
         )
 
@@ -1850,7 +1833,7 @@ Have fun!
         if not atstartdlg.exec():
             return
 
-        self.atprogdialog = AutoTagProgressWindow(self)
+        self.atprogdialog = AutoTagProgressWindow(self, self.current_talker())
         self.atprogdialog.setModal(True)
         self.atprogdialog.show()
         self.atprogdialog.progressBar.setMaximum(len(ca_list))
@@ -1937,7 +1920,12 @@ Have fun!
             match_results.multiple_matches.extend(match_results.low_confidence_matches)
             if reply == QtWidgets.QMessageBox.StandardButton.Yes:
                 matchdlg = AutoTagMatchWindow(
-                    self, match_results.multiple_matches, style, self.actual_issue_data_fetch, self.settings
+                    self,
+                    match_results.multiple_matches,
+                    style,
+                    self.actual_issue_data_fetch,
+                    self.config[0],
+                    self.current_talker(),
                 )
                 matchdlg.setModal(True)
                 matchdlg.exec()
@@ -1982,17 +1970,17 @@ Have fun!
             f"Exit {self.appName}", "If you quit now, data in the form will be lost.  Are you sure?"
         ):
             appsize = self.size()
-            self.settings.last_main_window_width = appsize.width()
-            self.settings.last_main_window_height = appsize.height()
-            self.settings.last_main_window_x = self.x()
-            self.settings.last_main_window_y = self.y()
-            self.settings.last_form_side_width = self.splitter.sizes()[0]
-            self.settings.last_list_side_width = self.splitter.sizes()[1]
+            self.config[0].internal_window_width = appsize.width()
+            self.config[0].internal_window_height = appsize.height()
+            self.config[0].internal_window_x = self.x()
+            self.config[0].internal_window_y = self.y()
+            self.config[0].internal_form_width = self.splitter.sizes()[0]
+            self.config[0].internal_list_width = self.splitter.sizes()[1]
             (
-                self.settings.last_filelist_sorted_column,
-                self.settings.last_filelist_sorted_order,
+                self.config[0].internal_sort_column,
+                self.config[0].internal_sort_direction,
             ) = self.fileSelectionList.get_sorting()
-            self.settings.save()
+            settngs.save_file(self.config, self.config[0].runtime_config.user_config_dir / "settings.json")
 
             event.accept()
         else:
@@ -2041,7 +2029,7 @@ Have fun!
 
     def apply_cbl_transform(self) -> None:
         self.form_to_metadata()
-        self.metadata = CBLTransformer(self.metadata, self.settings).apply()
+        self.metadata = CBLTransformer(self.metadata, self.config[0]).apply()
         self.metadata_to_form()
 
     def recalc_page_dimensions(self) -> None:
@@ -2066,8 +2054,7 @@ Have fun!
         if self.dirty_flag_verification(
             "File Rename", "If you rename files now, unsaved data in the form will be lost.  Are you sure?"
         ):
-
-            dlg = RenameWindow(self, ca_list, self.load_data_style, self.settings)
+            dlg = RenameWindow(self, ca_list, self.load_data_style, self.config, self.talkers)
             dlg.setModal(True)
             if dlg.exec() and self.comic_archive is not None:
                 self.fileSelectionList.update_selected_rows()
@@ -2086,7 +2073,7 @@ Have fun!
             QtCore.QTimer.singleShot(1, self.fileSelectionList.revert_selection)
             return
 
-        self.settings.last_opened_folder = os.path.abspath(os.path.split(comic_archive.path)[0])
+        self.config[0].internal_last_opened_folder = os.path.abspath(os.path.split(comic_archive.path)[0])
         self.comic_archive = comic_archive
         try:
             self.metadata = self.comic_archive.read_metadata(self.load_data_style)
@@ -2117,23 +2104,21 @@ Have fun!
 
     def check_latest_version_online(self) -> None:
         version_checker = VersionChecker()
-        self.version_check_complete(
-            version_checker.get_latest_version(self.settings.install_id, self.settings.send_usage_stats)
-        )
+        self.version_check_complete(version_checker.get_latest_version(self.config[0].internal_install_id))
 
-    def version_check_complete(self, new_version: str) -> None:
-        if new_version not in (self.version, self.settings.dont_notify_about_this_version):
+    def version_check_complete(self, new_version: tuple[str, str]) -> None:
+        if new_version[0] not in (self.version, self.config[0].dialog_dont_notify_about_this_version):
             website = "https://github.com/comictagger/comictagger"
             checked = OptionalMessageDialog.msg(
                 self,
                 "New version available!",
-                f"New version ({new_version}) available!<br>(You are currently running {self.version})<br><br>"
-                f"Visit <a href='{website}'>{website}</a> for more info.<br><br>",
+                f"New version ({new_version[1]}) available!<br>(You are currently running {self.version})<br><br>"
+                f"Visit <a href='{website}/releases/latest'>{website}/releases/latest</a> for more info.<br><br>",
                 False,
                 "Don't tell me about this version again",
             )
             if checked:
-                self.settings.dont_notify_about_this_version = new_version
+                self.config[0].dialog_dont_notify_about_this_version = new_version[0]
 
     def on_incoming_socket_connection(self) -> None:
         # Accept connection from other instance.

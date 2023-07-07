@@ -1,6 +1,6 @@
 """A class to encapsulate CoMet data"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 class CoMet:
-
     writer_synonyms = ["writer", "plotter", "scripter"]
     penciller_synonyms = ["artist", "penciller", "penciler", "breakdowns"]
     inker_synonyms = ["inker", "artist", "finishes"]
@@ -44,7 +43,6 @@ class CoMet:
         return str(ET.tostring(tree.getroot(), encoding="utf-8", xml_declaration=True).decode("utf-8"))
 
     def convert_metadata_to_xml(self, metadata: GenericMetadata) -> ET.ElementTree:
-
         # shorthand for the metadata
         md = metadata
 
@@ -97,7 +95,6 @@ class CoMet:
 
         # loop thru credits, and build a list for each role that CoMet supports
         for credit in metadata.credits:
-
             if credit["role"].casefold() in set(self.writer_synonyms):
                 ET.SubElement(root, "writer").text = str(credit["person"])
 
@@ -144,14 +141,14 @@ class CoMet:
         md.series = utils.xlate(get("series"))
         md.title = utils.xlate(get("title"))
         md.issue = utils.xlate(get("issue"))
-        md.volume = utils.xlate(get("volume"), True)
+        md.volume = utils.xlate_int(get("volume"))
         md.comments = utils.xlate(get("description"))
         md.publisher = utils.xlate(get("publisher"))
         md.language = utils.xlate(get("language"))
         md.format = utils.xlate(get("format"))
-        md.page_count = utils.xlate(get("pages"), True)
+        md.page_count = utils.xlate_int(get("pages"))
         md.maturity_rating = utils.xlate(get("rating"))
-        md.price = utils.xlate(get("price"), is_float=True)
+        md.price = utils.xlate_float(get("price"))
         md.is_version_of = utils.xlate(get("isVersionOf"))
         md.rights = utils.xlate(get("rights"))
         md.identifier = utils.xlate(get("identifier"))

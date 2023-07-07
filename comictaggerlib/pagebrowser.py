@@ -1,6 +1,6 @@
 """A PyQT4 dialog to show pages of a comic archive"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ class PageBrowserWindow(QtWidgets.QDialog):
 
         uic.loadUi(ui_path / "pagebrowser.ui", self)
 
-        self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode)
+        self.pageWidget = CoverImageWidget(self.pageContainer, CoverImageWidget.ArchiveMode, None, None)
         gridlayout = QtWidgets.QGridLayout(self.pageContainer)
         gridlayout.addWidget(self.pageWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)
@@ -80,7 +80,6 @@ class PageBrowserWindow(QtWidgets.QDialog):
         self.pageWidget.clear()
 
     def set_comic_archive(self, ca: ComicArchive) -> None:
-
         self.comic_archive = ca
         self.page_count = ca.get_number_of_pages()
         self.current_page_num = 0
@@ -92,7 +91,6 @@ class PageBrowserWindow(QtWidgets.QDialog):
             self.btnPrev.setEnabled(True)
 
     def next_page(self) -> None:
-
         if self.current_page_num + 1 < self.page_count:
             self.current_page_num += 1
         else:
@@ -100,7 +98,6 @@ class PageBrowserWindow(QtWidgets.QDialog):
         self.set_page()
 
     def prev_page(self) -> None:
-
         if self.current_page_num - 1 >= 0:
             self.current_page_num -= 1
         else:

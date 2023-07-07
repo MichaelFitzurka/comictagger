@@ -1,6 +1,6 @@
 """A PyQT4 dialog to select from automated issue matches"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,39 +24,41 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 from comicapi.comicarchive import MetaDataStyle
 from comicapi.genericmetadata import GenericMetadata
 from comictaggerlib.coverimagewidget import CoverImageWidget
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.resulttypes import IssueResult, MultipleMatch
-from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.ui import ui_path
 from comictaggerlib.ui.qtutils import reduce_widget_font_size
+from comictalker.comictalker import ComicTalker
 
 logger = logging.getLogger(__name__)
 
 
 class AutoTagMatchWindow(QtWidgets.QDialog):
-    volume_id = 0
-
     def __init__(
         self,
         parent: QtWidgets.QWidget,
         match_set_list: list[MultipleMatch],
         style: int,
         fetch_func: Callable[[IssueResult], GenericMetadata],
-        settings: ComicTaggerSettings,
+        config: ct_ns,
+        talker: ComicTalker,
     ) -> None:
         super().__init__(parent)
 
         uic.loadUi(ui_path / "matchselectionwindow.ui", self)
 
-        self.settings = settings
+        self.config = config
 
         self.current_match_set: MultipleMatch = match_set_list[0]
 
-        self.altCoverWidget = CoverImageWidget(self.altCoverContainer, CoverImageWidget.AltCoverMode)
+        self.altCoverWidget = CoverImageWidget(
+            self.altCoverContainer, CoverImageWidget.AltCoverMode, config.runtime_config.user_cache_dir, talker
+        )
         gridlayout = QtWidgets.QGridLayout(self.altCoverContainer)
         gridlayout.addWidget(self.altCoverWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)
 
-        self.archiveCoverWidget = CoverImageWidget(self.archiveCoverContainer, CoverImageWidget.ArchiveMode)
+        self.archiveCoverWidget = CoverImageWidget(self.archiveCoverContainer, CoverImageWidget.ArchiveMode, None, None)
         gridlayout = QtWidgets.QGridLayout(self.archiveCoverContainer)
         gridlayout.addWidget(self.archiveCoverWidget)
         gridlayout.setContentsMargins(0, 0, 0, 0)
@@ -89,7 +91,6 @@ class AutoTagMatchWindow(QtWidgets.QDialog):
         self.update_data()
 
     def update_data(self) -> None:
-
         self.current_match_set = self.match_set_list[self.current_match_set_idx]
 
         if self.current_match_set_idx + 1 == len(self.match_set_list):
@@ -172,13 +173,15 @@ class AutoTagMatchWindow(QtWidgets.QDialog):
         self.accept()
 
     def current_item_changed(self, curr: QtCore.QModelIndex, prev: QtCore.QModelIndex) -> None:
-
         if curr is None:
             return None
         if prev is not None and prev.row() == curr.row():
             return None
 
-        self.altCoverWidget.set_issue_id(self.current_match()["issue_id"])
+        self.altCoverWidget.set_issue_details(
+            self.current_match()["issue_id"],
+            [self.current_match()["image_url"], *self.current_match()["alt_image_urls"]],
+        )
         if self.current_match()["description"] is None:
             self.teDescription.setText("")
         else:
@@ -194,7 +197,6 @@ class AutoTagMatchWindow(QtWidgets.QDialog):
         return match
 
     def accept(self) -> None:
-
         self.save_match()
         self.current_match_set_idx += 1
 
@@ -228,29 +230,26 @@ class AutoTagMatchWindow(QtWidgets.QDialog):
         QtWidgets.QDialog.reject(self)
 
     def save_match(self) -> None:
-
         match = self.current_match()
         ca = self.current_match_set.ca
 
         md = ca.read_metadata(self._style)
         if md.is_empty:
             md = ca.metadata_from_filename(
-                self.settings.complicated_parser,
-                self.settings.remove_c2c,
-                self.settings.remove_fcbd,
-                self.settings.remove_publisher,
+                self.config.filename_complicated_parser,
+                self.config.filename_remove_c2c,
+                self.config.filename_remove_fcbd,
+                self.config.filename_remove_publisher,
             )
 
         # now get the particular issue data
-        cv_md = self.fetch_func(match)
-        if cv_md is None:
-            QtWidgets.QMessageBox.critical(
-                self, "Network Issue", "Could not connect to Comic Vine to get issue details!"
-            )
+        ct_md = self.fetch_func(match)
+        if ct_md is None:
+            QtWidgets.QMessageBox.critical(self, "Network Issue", "Could not retrieve issue details!")
             return
 
         QtWidgets.QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.CursorShape.WaitCursor))
-        md.overlay(cv_md)
+        md.overlay(ct_md)
         success = ca.write_metadata(md, self._style)
         ca.load_cache([MetaDataStyle.CBI, MetaDataStyle.CIX])
 

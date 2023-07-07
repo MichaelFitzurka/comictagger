@@ -1,6 +1,6 @@
 """A python app to (automatically) tag comic archives"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,23 +15,26 @@
 # limitations under the License.
 from __future__ import annotations
 
+import argparse
 import json
+import locale
+import logging
 import logging.handlers
 import os
-import pathlib
-import platform
 import signal
+import subprocess
 import sys
-import traceback
-import types
+from typing import cast
 
-from comicapi import utils
-from comictaggerlib import cli
-from comictaggerlib.comicvinetalker import ComicVineTalker
+import settngs
+
+import comicapi.comicarchive
+import comicapi.utils
+import comictalker
+from comictaggerlib import cli, ctsettings
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.ctversion import version
-from comictaggerlib.graphics import graphics_path
-from comictaggerlib.options import parse_cmd_line
-from comictaggerlib.settings import ComicTaggerSettings
+from comictaggerlib.log import setup_logging
 
 if sys.version_info < (3, 10):
     import importlib_metadata
@@ -39,202 +42,185 @@ else:
     import importlib.metadata as importlib_metadata
 
 logger = logging.getLogger("comictagger")
-logging.getLogger("comicapi").setLevel(logging.DEBUG)
-logging.getLogger("comictaggerlib").setLevel(logging.DEBUG)
+
+
 logger.setLevel(logging.DEBUG)
 
-try:
-    qt_available = True
-    from PyQt5 import QtCore, QtGui, QtWidgets
 
-    def show_exception_box(log_msg: str) -> None:
-        """Checks if a QApplication instance is available and shows a messagebox with the exception message.
-        If unavailable (non-console application), log an additional notice.
-        """
-        if QtWidgets.QApplication.instance() is not None:
-            errorbox = QtWidgets.QMessageBox()
-            errorbox.setText(f"Oops. An unexpected error occurred:\n{log_msg}")
-            errorbox.exec()
-            QtWidgets.QApplication.exit(1)
-        else:
-            logger.debug("No QApplication instance available.")
+def _lang_code_mac() -> str:
+    """
+    stolen from https://github.com/mu-editor/mu
+    Returns the user's language preference as defined in the Language & Region
+    preference pane in macOS's System Preferences.
+    """
 
-    class UncaughtHook(QtCore.QObject):
-        _exception_caught = QtCore.pyqtSignal(object)
+    # Uses the shell command `defaults read -g AppleLocale` that prints out a
+    # language code to standard output. Assumptions about the command:
+    # - It exists and is in the shell's PATH.
+    # - It accepts those arguments.
+    # - It returns a usable language code.
+    #
+    # Reference documentation:
+    # - The man page for the `defaults` command on macOS.
+    # - The macOS underlying API:
+    #   https://developer.apple.com/documentation/foundation/nsuserdefaults.
 
-        def __init__(self) -> None:
-            super().__init__()
+    lang_detect_command = "defaults read -g AppleLocale"
 
-            # this registers the exception_hook() function as hook with the Python interpreter
-            sys.excepthook = self.exception_hook
+    status, output = subprocess.getstatusoutput(lang_detect_command)
+    if status == 0:
+        # Command was successful.
+        lang_code = output
+    else:
+        logging.warning("Language detection command failed: %r", output)
+        lang_code = ""
 
-            # connect signal to execute the message box function always on main thread
-            self._exception_caught.connect(show_exception_box)
-
-        def exception_hook(
-            self, exc_type: type[BaseException], exc_value: BaseException, exc_traceback: types.TracebackType | None
-        ) -> None:
-            """Function handling uncaught exceptions.
-            It is triggered each time an uncaught exception occurs.
-            """
-            if issubclass(exc_type, KeyboardInterrupt):
-                # ignore keyboard interrupt to support console applications
-                sys.__excepthook__(exc_type, exc_value, exc_traceback)
-            else:
-                exc_info = (exc_type, exc_value, exc_traceback)
-                log_msg = "\n".join(["".join(traceback.format_tb(exc_traceback)), f"{exc_type.__name__}: {exc_value}"])
-                logger.critical("Uncaught exception: %s: %s", exc_type.__name__, exc_value, exc_info=exc_info)
-
-                # trigger message box show
-                self._exception_caught.emit(log_msg)
-
-    qt_exception_hook = UncaughtHook()
-    from comictaggerlib.taggerwindow import TaggerWindow
-
-    class Application(QtWidgets.QApplication):
-        openFileRequest = QtCore.pyqtSignal(QtCore.QUrl, name="openfileRequest")
-
-        def event(self, event):
-            if event.type() == QtCore.QEvent.FileOpen:
-                logger.info(event.url().toLocalFile())
-                self.openFileRequest.emit(event.url())
-                return True
-            return super().event(event)
-
-except ImportError as e:
-
-    def show_exception_box(log_msg: str) -> None:
-        ...
-
-    logger.error(str(e))
-    qt_available = False
+    return lang_code
 
 
-def rotate(handler: logging.handlers.RotatingFileHandler, filename: pathlib.Path) -> None:
-    if filename.is_file() and filename.stat().st_size > 0:
-        handler.doRollover()
+def configure_locale() -> None:
+    if sys.platform == "darwin" and "LANG" not in os.environ:
+        code = _lang_code_mac()
+        if code != "":
+            os.environ["LANG"] = f"{code}.utf-8"
+
+    locale.setlocale(locale.LC_ALL, "")
+    sys.stdout.reconfigure(encoding=sys.getdefaultencoding())  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding=sys.getdefaultencoding())  # type: ignore[attr-defined]
+    sys.stdin.reconfigure(encoding=sys.getdefaultencoding())  # type: ignore[attr-defined]
 
 
-def update_publishers() -> None:
-    json_file = ComicTaggerSettings.get_settings_folder() / "publishers.json"
+def update_publishers(config: settngs.Config[ct_ns]) -> None:
+    json_file = config[0].runtime_config.user_config_dir / "publishers.json"
     if json_file.exists():
         try:
-            utils.update_publishers(json.loads(json_file.read_text("utf-8")))
+            comicapi.utils.update_publishers(json.loads(json_file.read_text("utf-8")))
         except Exception as e:
-            logger.exception("Failed to load publishers from %s", json_file)
-            show_exception_box(str(e))
+            logger.exception("Failed to load publishers from %s: %s", json_file, e)
 
 
-def ctmain() -> None:
-    opts = parse_cmd_line()
-    settings = ComicTaggerSettings(opts.config_path)
+class App:
+    """docstring for App"""
 
-    os.makedirs(ComicTaggerSettings.get_settings_folder() / "logs", exist_ok=True)
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.WARNING)
-    file_handler = logging.handlers.RotatingFileHandler(
-        ComicTaggerSettings.get_settings_folder() / "logs" / "ComicTagger.log", encoding="utf-8", backupCount=10
-    )
-    rotate(file_handler, ComicTaggerSettings.get_settings_folder() / "logs" / "ComicTagger.log")
-    logging.basicConfig(
-        handlers=[
-            stream_handler,
-            file_handler,
-        ],
-        level=logging.WARNING,
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    )
-    # Need to load setting before anything else
+    def __init__(self) -> None:
+        self.config: settngs.Config[ct_ns]
+        self.initial_arg_parser = ctsettings.initial_commandline_parser()
+        self.config_load_success = False
 
-    # manage the CV API key
-    # None comparison is used so that the empty string can unset the value
-    if opts.cv_api_key is not None or opts.cv_url is not None:
-        settings.cv_api_key = opts.cv_api_key if opts.cv_api_key is not None else settings.cv_api_key
-        settings.cv_url = opts.cv_url if opts.cv_url is not None else settings.cv_url
-        settings.save()
-    if opts.only_set_cv_key:
-        print("Key set")  # noqa: T201
-        return
+    def run(self) -> None:
+        configure_locale()
+        conf = self.initialize()
+        self.initialize_dirs(conf.config)
+        self.load_plugins(conf)
+        self.register_settings()
+        self.config = self.parse_settings(conf.config)
 
-    ComicVineTalker.api_key = settings.cv_api_key
-    ComicVineTalker.api_base_url = settings.cv_url
+        self.main()
 
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    def load_plugins(self, opts: argparse.Namespace) -> None:
+        comicapi.comicarchive.load_archive_plugins()
+        ctsettings.talkers = comictalker.get_talkers(version, opts.config.user_cache_dir)
 
-    logger.info(
-        "ComicTagger Version: %s running on: %s PyInstaller: %s",
-        version,
-        platform.system(),
-        "Yes" if getattr(sys, "frozen", None) else "No",
-    )
+    def initialize(self) -> argparse.Namespace:
+        conf, _ = self.initial_arg_parser.parse_known_args()
+        assert conf is not None
+        setup_logging(conf.verbose, conf.config.user_log_dir)
+        return conf
 
-    logger.debug("Installed Packages")
-    for pkg in sorted(importlib_metadata.distributions(), key=lambda x: x.name):
-        logger.debug("%s\t%s", pkg.metadata["Name"], pkg.metadata["Version"])
+    def register_settings(self) -> None:
+        self.manager = settngs.Manager(
+            """A utility for reading and writing metadata to comic archives.\n\n\nIf no options are given, %(prog)s will run in windowed mode.""",
+            "For more help visit the wiki at: https://github.com/comictagger/comictagger/wiki",
+        )
+        ctsettings.register_commandline_settings(self.manager)
+        ctsettings.register_file_settings(self.manager)
+        ctsettings.register_plugin_settings(self.manager)
 
-    utils.load_publishers()
-    update_publishers()
+    def parse_settings(self, config_paths: ctsettings.ComicTaggerPaths, *args: str) -> settngs.Config[ct_ns]:
+        cfg, self.config_load_success = self.manager.parse_config(
+            config_paths.user_config_dir / "settings.json", list(args) or None
+        )
+        config = cast(settngs.Config[ct_ns], self.manager.get_namespace(cfg, file=True, cmdline=True))
 
-    if not qt_available and not opts.no_gui:
-        opts.no_gui = True
-        logger.warning("PyQt5 is not available. ComicTagger is limited to command-line mode.")
+        config = ctsettings.validate_commandline_settings(config, self.manager)
+        config = ctsettings.validate_file_settings(config)
+        config = ctsettings.validate_plugin_settings(config)
+        return config
 
-    if opts.no_gui:
+    def initialize_dirs(self, paths: ctsettings.ComicTaggerPaths) -> None:
+        paths.user_data_dir.mkdir(parents=True, exist_ok=True)
+        paths.user_config_dir.mkdir(parents=True, exist_ok=True)
+        paths.user_cache_dir.mkdir(parents=True, exist_ok=True)
+        paths.user_state_dir.mkdir(parents=True, exist_ok=True)
+        paths.user_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug("user_data_dir: %s", paths.user_data_dir)
+        logger.debug("user_config_dir: %s", paths.user_config_dir)
+        logger.debug("user_cache_dir: %s", paths.user_cache_dir)
+        logger.debug("user_state_dir: %s", paths.user_state_dir)
+        logger.debug("user_log_dir: %s", paths.user_log_dir)
+
+    def main(self) -> None:
+        assert self.config is not None
+        # config already loaded
+        error = None
+
+        talkers = ctsettings.talkers
+        del ctsettings.talkers
+
+        if len(talkers) < 1:
+            error = error = (
+                f"Failed to load any talkers, please re-install and check the log located in '{self.config[0].runtime_config.user_log_dir}' for more details",
+                True,
+            )
+
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+        logger.debug("Installed Packages")
+        for pkg in sorted(importlib_metadata.distributions(), key=lambda x: x.name):
+            logger.debug("%s\t%s", pkg.metadata["Name"], pkg.metadata["Version"])
+
+        comicapi.utils.load_publishers()
+        update_publishers(self.config)
+
+        # manage the CV API key
+        # None comparison is used so that the empty string can unset the value
+        if not error and (
+            self.config[0].talker_comicvine_comicvine_key is not None  # type: ignore[attr-defined]
+            or self.config[0].talker_comicvine_comicvine_url is not None  # type: ignore[attr-defined]
+        ):
+            settings_path = self.config[0].runtime_config.user_config_dir / "settings.json"
+            if self.config_load_success:
+                self.manager.save_file(self.config[0], settings_path)
+
+        if self.config[0].commands_only_set_cv_key:
+            if self.config_load_success:
+                print("Key set")  # noqa: T201
+                return
+
+        if not self.config_load_success:
+            error = (
+                f"Failed to load settings, check the log located in '{self.config[0].runtime_config.user_log_dir}' for more details",
+                True,
+            )
+
+        if not self.config[0].runtime_no_gui:
+            try:
+                from comictaggerlib import gui
+
+                return gui.open_tagger_window(talkers, self.config, error)
+            except ImportError:
+                self.config[0].runtime_no_gui = True
+                logger.warning("PyQt5 is not available. ComicTagger is limited to command-line mode.")
+
+        # GUI mode is not available or CLI mode was requested
+        if error and error[1]:
+            print(f"A fatal error occurred please check the log for more information: {error[0]}")  # noqa: T201
+            raise SystemExit(1)
         try:
-            cli.cli_mode(opts, settings)
+            cli.CLI(self.config[0], talkers).run()
         except Exception:
             logger.exception("CLI mode failed")
-    else:
-        os.environ["QtWidgets.QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        args = []
-        if opts.darkmode:
-            args.extend(["-platform", "windows:darkmode=2"])
-        args.extend(sys.argv)
-        app = Application(args)
 
-        # needed to catch initial open file events (macOS)
-        app.openFileRequest.connect(lambda x: opts.files.append(x.toLocalFile()))
 
-        if platform.system() == "Darwin":
-            # Set the MacOS dock icon
-            app.setWindowIcon(QtGui.QIcon(str(graphics_path / "app.png")))
-
-        if platform.system() == "Windows":
-            # For pure python, tell windows that we're not python,
-            # so we can have our own taskbar icon
-            import ctypes
-
-            myappid = "comictagger"  # arbitrary string
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)  # type: ignore[attr-defined]
-            # force close of console window
-            swp_hidewindow = 0x0080
-            console_wnd = ctypes.windll.kernel32.GetConsoleWindow()  # type: ignore[attr-defined]
-            if console_wnd != 0:
-                ctypes.windll.user32.SetWindowPos(console_wnd, None, 0, 0, 0, 0, swp_hidewindow)  # type: ignore[attr-defined]
-
-        if platform.system() != "Linux":
-            img = QtGui.QPixmap(str(graphics_path / "tags.png"))
-
-            splash = QtWidgets.QSplashScreen(img)
-            splash.show()
-            splash.raise_()
-            QtWidgets.QApplication.processEvents()
-
-        try:
-            tagger_window = TaggerWindow(opts.files, settings, opts=opts)
-            tagger_window.setWindowIcon(QtGui.QIcon(str(graphics_path / "app.png")))
-            tagger_window.show()
-
-            # Catch open file events (macOS)
-            app.openFileRequest.connect(tagger_window.open_file_event)
-
-            if platform.system() != "Linux":
-                splash.finish(tagger_window)
-
-            sys.exit(app.exec())
-        except Exception:
-            logger.exception("GUI mode failed")
-            QtWidgets.QMessageBox.critical(
-                QtWidgets.QMainWindow(), "Error", "Unhandled exception in app:\n" + traceback.format_exc()
-            )
+def main() -> None:
+    App().run()

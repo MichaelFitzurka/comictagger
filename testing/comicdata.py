@@ -1,29 +1,35 @@
 from __future__ import annotations
 
 import comicapi.genericmetadata
-import comictaggerlib.resulttypes
+import comictalker.resulttypes
 from comicapi import utils
 
 search_results = [
-    comictaggerlib.resulttypes.CVVolumeResults(
+    comictalker.resulttypes.ComicSeries(
         count_of_issues=1,
+        count_of_volumes=1,
         description="this is a description",
-        id=1,
-        image={"super_url": "https://test.org/image/1"},
+        id="1",
+        image_url="https://test.org/image/1",
         name="test",
-        publisher=comictaggerlib.resulttypes.CVPublisher(name="test"),
-        start_year="",  # This is currently submitted as a string and returned as an int
-        aliases=None,
+        publisher="test",
+        start_year=0,
+        aliases=[],
+        genres=[],
+        format=None,
     ),
-    comictaggerlib.resulttypes.CVVolumeResults(
+    comictalker.resulttypes.ComicSeries(
         count_of_issues=1,
+        count_of_volumes=1,
         description="this is a description",
-        id=1,
-        image={"super_url": "https://test.org/image/2"},
+        id="2",
+        image_url="https://test.org/image/2",
         name="test 2",
-        publisher=comictaggerlib.resulttypes.CVPublisher(name="test"),
-        start_year="",  # This is currently submitted as a string and returned as an int
-        aliases=None,
+        publisher="test",
+        start_year=0,
+        aliases=[],
+        genres=[],
+        format=None,
     ),
 ]
 
@@ -58,6 +64,14 @@ metadata = [
     (
         comicapi.genericmetadata.GenericMetadata(series="", issue="2", title="never"),
         comicapi.genericmetadata.md_test.replace(series=None, issue="2", title="never"),
+    ),
+    (
+        comicapi.genericmetadata.GenericMetadata(series="", issue="", title="never"),
+        comicapi.genericmetadata.md_test.replace(series=None, issue=None, title="never"),
+    ),
+    (
+        comicapi.genericmetadata.GenericMetadata(series="", issue=None, title="never"),
+        comicapi.genericmetadata.md_test.replace(series=None, issue="1", title="never"),
     ),
     (
         comicapi.genericmetadata.GenericMetadata(),
@@ -125,13 +139,7 @@ additional_imprints = [
 all_imprints = imprints + additional_imprints
 
 seed_imprints = {
-    "Marvel": utils.ImprintDict(
-        "Marvel",
-        {
-            "marvel comics": "",
-            "aircel": "Aircel Comics",
-        },
-    )
+    "Marvel": utils.ImprintDict("Marvel", {"marvel comics": "", "aircel": "Aircel Comics"}),
 }
 
 additional_seed_imprints = {

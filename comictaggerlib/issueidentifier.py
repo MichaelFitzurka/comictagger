@@ -1,6 +1,6 @@
 """A class to automatically identify a comic archive"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,16 +26,16 @@ from comicapi import utils
 from comicapi.comicarchive import ComicArchive
 from comicapi.genericmetadata import GenericMetadata
 from comicapi.issuestring import IssueString
-from comictaggerlib.comicvinetalker import ComicVineTalker, ComicVineTalkerException
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.imagefetcher import ImageFetcher, ImageFetcherException
 from comictaggerlib.imagehasher import ImageHasher
 from comictaggerlib.resulttypes import IssueResult
-from comictaggerlib.settings import ComicTaggerSettings
+from comictalker.comictalker import ComicTalker, TalkerError
 
 logger = logging.getLogger(__name__)
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops
 
     pil_available = True
 except ImportError:
@@ -72,8 +72,9 @@ class IssueIdentifier:
     result_one_good_match = 4
     result_multiple_good_matches = 5
 
-    def __init__(self, comic_archive: ComicArchive, settings: ComicTaggerSettings) -> None:
-        self.settings = settings
+    def __init__(self, comic_archive: ComicArchive, config: ct_ns, talker: ComicTalker) -> None:
+        self.config = config
+        self.talker = talker
         self.comic_archive: ComicArchive = comic_archive
         self.image_hasher = 1
 
@@ -95,10 +96,10 @@ class IssueIdentifier:
 
         # used to eliminate series names that are too long based on our search
         # string
-        self.series_match_thresh = settings.id_series_match_identify_thresh
+        self.series_match_thresh = config.identifier_series_match_identify_thresh
 
         # used to eliminate unlikely publishers
-        self.publisher_filter = [s.strip().casefold() for s in settings.id_publisher_filter.split(",")]
+        self.publisher_filter = [s.strip().casefold() for s in config.identifier_publisher_filter]
 
         self.additional_metadata = GenericMetadata()
         self.output_function: Callable[[str], None] = IssueIdentifier.default_write_output
@@ -107,7 +108,6 @@ class IssueIdentifier:
         self.search_result = self.result_no_matches
         self.cover_page_index = 0
         self.cancel = False
-        self.wait_and_retry_on_rate_limit = False
 
         self.match_list: list[IssueResult] = []
 
@@ -134,7 +134,7 @@ class IssueIdentifier:
 
     def calculate_hash(self, image_data: bytes) -> int:
         if self.image_hasher == 3:
-            return -1  # ImageHasher(data=image_data).dct_average_hash()
+            return ImageHasher(data=image_data).p_hash()
         if self.image_hasher == 2:
             return -1  # ImageHasher(data=image_data).average_hash2()
 
@@ -149,7 +149,6 @@ class IssueIdentifier:
             return 1.5
 
     def crop_cover(self, image_data: bytes) -> bytes:
-
         im = Image.open(io.BytesIO(image_data))
         w, h = im.size
 
@@ -160,11 +159,53 @@ class IssueIdentifier:
             return b""
 
         output = io.BytesIO()
-        cropped_im.save(output, format="PNG")
+        cropped_im.convert("RGB").save(output, format="PNG")
         cropped_image_data = output.getvalue()
         output.close()
 
         return cropped_image_data
+
+    # Adapted from https://stackoverflow.com/a/10616717/20629671
+    def crop_border(self, image_data: bytes, ratio: int) -> bytes | None:
+        im = Image.open(io.BytesIO(image_data))
+
+        # RGBA doesn't work????
+        tmp = im.convert("RGB")
+
+        bg = Image.new("RGB", tmp.size, "black")
+        diff = ImageChops.difference(tmp, bg)
+        diff = ImageChops.add(diff, diff, 2.0, -100)
+
+        bbox = diff.getbbox()
+
+        width_percent = 0
+        height_percent = 0
+
+        # If bbox is None that should mean it's solid black
+        if bbox:
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
+
+            # Convert to percent
+            width_percent = int(100 - ((width / im.width) * 100))
+            height_percent = int(100 - ((height / im.height) * 100))
+            logger.debug(
+                "Width: %s Height: %s, ratio: %s  %s ratio met: %s",
+                im.width,
+                im.height,
+                width_percent,
+                height_percent,
+                width_percent > ratio or height_percent > ratio,
+            )
+
+        # If there is a difference return the image otherwise return None
+        if width_percent > ratio or height_percent > ratio:
+            output = io.BytesIO()
+            im.crop(bbox).save(output, format="PNG")
+            cropped_image_data = output.getvalue()
+            output.close()
+            return cropped_image_data
+        return None
 
     def set_progress_callback(self, cb_func: Callable[[int, int], None]) -> None:
         self.callback = cb_func
@@ -173,11 +214,8 @@ class IssueIdentifier:
         self.cover_url_callback = cb_func
 
     def get_search_keys(self) -> SearchKeys:
-
         ca = self.comic_archive
 
-        if ca is None:
-            return None
         search_keys: SearchKeys
         if self.only_use_additional_meta_data:
             search_keys = SearchKeys(
@@ -201,10 +239,10 @@ class IssueIdentifier:
 
         # try to get some metadata from filename
         md_from_filename = ca.metadata_from_filename(
-            self.settings.complicated_parser,
-            self.settings.remove_c2c,
-            self.settings.remove_fcbd,
-            self.settings.remove_publisher,
+            self.config.filename_complicated_parser,
+            self.config.filename_remove_c2c,
+            self.config.filename_remove_fcbd,
+            self.config.filename_remove_publisher,
         )
 
         working_md = md_from_filename.copy()
@@ -239,11 +277,9 @@ class IssueIdentifier:
 
     def get_issue_cover_match_score(
         self,
-        comic_vine: ComicVineTalker,
-        issue_id: int,
+        issue_id: str,
         primary_img_url: str,
-        primary_thumb_url: str,
-        page_url: str,
+        alt_urls: list[str],
         local_cover_hash_list: list[int],
         use_remote_alternates: bool = False,
         use_log: bool = True,
@@ -256,9 +292,11 @@ class IssueIdentifier:
             return Score(score=0, url="", hash=0)
 
         try:
-            url_image_data = ImageFetcher().fetch(primary_thumb_url, blocking=True)
+            url_image_data = ImageFetcher(self.config.runtime_config.user_cache_dir).fetch(
+                primary_img_url, blocking=True
+            )
         except ImageFetcherException as e:
-            self.log_msg("Network issue while fetching cover image from Comic Vine. Aborting...")
+            self.log_msg(f"Network issue while fetching cover image from {self.talker.name}. Aborting...")
             raise IssueIdentifierNetworkError from e
 
         if self.cancel:
@@ -274,12 +312,13 @@ class IssueIdentifier:
             raise IssueIdentifierCancelled
 
         if use_remote_alternates:
-            alt_img_url_list = comic_vine.fetch_alternate_cover_urls(issue_id, page_url)
-            for alt_url in alt_img_url_list:
+            for alt_url in alt_urls:
                 try:
-                    alt_url_image_data = ImageFetcher().fetch(alt_url, blocking=True)
+                    alt_url_image_data = ImageFetcher(self.config.runtime_config.user_cache_dir).fetch(
+                        alt_url, blocking=True
+                    )
                 except ImageFetcherException as e:
-                    self.log_msg("Network issue while fetching alt. cover image from Comic Vine. Aborting...")
+                    self.log_msg(f"Network issue while fetching alt. cover image from {self.talker.name}. Aborting...")
                     raise IssueIdentifierNetworkError from e
 
                 if self.cancel:
@@ -309,8 +348,7 @@ class IssueIdentifier:
                     self.log_msg(score, False)
 
                 if score <= self.strong_score_thresh:
-                    # such a good score, we can quit now, since for sure we
-                    # have a winner
+                    # such a good score, we can quit now, since for sure we have a winner
                     done = True
                     break
             if done:
@@ -351,15 +389,15 @@ class IssueIdentifier:
                 narrow_cover_hash = self.calculate_hash(right_side_image_data)
 
         keys = self.get_search_keys()
-        # normalize the issue number
+        # normalize the issue number, None will return as ""
         keys["issue_number"] = IssueString(keys["issue_number"]).as_string()
 
         # we need, at minimum, a series and issue number
-        if keys["series"] is None or keys["issue_number"] is None:
+        if not (keys["series"] and keys["issue_number"]):
             self.log_msg("Not enough info for a search!")
             return []
 
-        self.log_msg("Going to search for:")
+        self.log_msg(f"Using {self.talker.name} to search for:")
         self.log_msg("\tSeries: " + keys["series"])
         self.log_msg("\tIssue:  " + keys["issue_number"])
         if keys["issue_count"] is not None:
@@ -369,51 +407,38 @@ class IssueIdentifier:
         if keys["month"] is not None:
             self.log_msg("\tMonth:  " + str(keys["month"]))
 
-        comic_vine = ComicVineTalker(self.settings.id_series_match_search_thresh)
-        comic_vine.wait_for_rate_limit = self.wait_and_retry_on_rate_limit
-
-        comic_vine.set_log_func(self.output_function)
-
         self.log_msg(f"Searching for {keys['series']} #{keys['issue_number']} ...")
         try:
-            cv_search_results = comic_vine.search_for_series(keys["series"])
-        except ComicVineTalkerException:
-            self.log_msg("Network issue while searching for series. Aborting...")
+            ct_search_results = self.talker.search_for_series(keys["series"])
+        except TalkerError as e:
+            self.log_msg(f"Error searching for series.\n{e}")
             return []
 
         if self.cancel:
             return []
 
-        if cv_search_results is None:
+        if ct_search_results is None:
             return []
 
         series_second_round_list = []
 
-        for item in cv_search_results:
+        for item in ct_search_results:
             length_approved = False
             publisher_approved = True
             date_approved = True
 
             # remove any series that starts after the issue year
-            if (
-                keys["year"] is not None
-                and str(keys["year"]).isdigit()
-                and item["start_year"] is not None
-                and str(item["start_year"]).isdigit()
-            ):
-                if int(keys["year"]) < int(item["start_year"]):
+            if keys["year"] is not None and item.start_year is not None:
+                if keys["year"] < item.start_year:
                     date_approved = False
 
-            aliases = []
-            if item["aliases"]:
-                aliases = item["aliases"].split("\n")
-            for name in [item["name"], *aliases]:
+            for name in [item.name, *item.aliases]:
                 if utils.titles_match(keys["series"], name, self.series_match_thresh):
                     length_approved = True
                     break
             # remove any series from publishers on the filter
-            if item["publisher"] is not None:
-                publisher = item["publisher"]["name"]
+            if item.publisher is not None:
+                publisher = item.publisher
                 if publisher is not None and publisher.casefold() in self.publisher_filter:
                     publisher_approved = False
 
@@ -426,34 +451,29 @@ class IssueIdentifier:
             self.callback(0, len(series_second_round_list))
 
         # now sort the list by name length
-        series_second_round_list.sort(key=lambda x: len(x["name"]), reverse=False)
+        series_second_round_list.sort(key=lambda x: len(x.name), reverse=False)
 
-        # build a list of volume IDs
-        volume_id_list = []
-        for series in series_second_round_list:
-            volume_id_list.append(series["id"])
+        series_by_id = {series.id: series for series in series_second_round_list}
 
         issue_list = None
         try:
-            if len(volume_id_list) > 0:
-                issue_list = comic_vine.fetch_issues_by_volume_issue_num_and_year(
-                    volume_id_list, keys["issue_number"], keys["year"]
+            if len(series_by_id) > 0:
+                issue_list = self.talker.fetch_issues_by_series_issue_num_and_year(
+                    list(series_by_id.keys()), keys["issue_number"], keys["year"]
                 )
-
-        except ComicVineTalkerException:
-            self.log_msg("Network issue while searching for series details. Aborting...")
+        except TalkerError as e:
+            self.log_msg(f"Issue with while searching for series details. Aborting...\n{e}")
             return []
 
         if issue_list is None:
             return []
 
         shortlist = []
-        # now re-associate the issues and volumes
+        # now re-associate the issues and series
+        # is this really needed?
         for issue in issue_list:
-            for series in series_second_round_list:
-                if series["id"] == issue["volume"]["id"]:
-                    shortlist.append((series, issue))
-                    break
+            if issue.series.id in series_by_id:
+                shortlist.append((series_by_id[issue.series.id], issue))
 
         if keys["year"] is None:
             self.log_msg(f"Found {len(shortlist)} series that have an issue #{keys['issue_number']}")
@@ -462,7 +482,7 @@ class IssueIdentifier:
                 f"Found {len(shortlist)} series that have an issue #{keys['issue_number']} from {keys['year']}"
             )
 
-        # now we have a shortlist of volumes with the desired issue number
+        # now we have a shortlist of series with the desired issue number
         # Do first round of cover matching
         counter = len(shortlist)
         for series, issue in shortlist:
@@ -471,55 +491,53 @@ class IssueIdentifier:
                 counter += 1
 
             self.log_msg(
-                f"Examining covers for  ID: {series['id']} {series['name']} ({series['start_year']}) ...",
+                f"Examining covers for  ID: {series.id} {series.name} ({series.start_year}) ...",
                 newline=False,
             )
 
             # parse out the cover date
-            _, month, year = comic_vine.parse_date_str(issue["cover_date"])
+            _, month, year = utils.parse_date_str(issue.cover_date)
 
             # Now check the cover match against the primary image
             hash_list = [cover_hash]
             if narrow_cover_hash is not None:
                 hash_list.append(narrow_cover_hash)
 
+            cropped_border = self.crop_border(cover_image_data, self.config.identifier_border_crop_percent)
+            if cropped_border is not None:
+                hash_list.append(self.calculate_hash(cropped_border))
+                logger.info("Adding cropped cover to the hashlist")
+
             try:
-                image_url = issue["image"]["super_url"]
-                thumb_url = issue["image"]["thumb_url"]
-                page_url = issue["site_detail_url"]
+                image_url = issue.image_url
+                alt_urls = issue.alt_image_urls
 
                 score_item = self.get_issue_cover_match_score(
-                    comic_vine,
-                    issue["id"],
-                    image_url,
-                    thumb_url,
-                    page_url,
-                    hash_list,
-                    use_remote_alternates=False,
+                    issue.id, image_url, alt_urls, hash_list, use_remote_alternates=False
                 )
             except Exception:
+                logger.exception("Scoring series failed")
                 self.match_list = []
                 return self.match_list
 
             match: IssueResult = {
-                "series": f"{series['name']} ({series['start_year']})",
+                "series": f"{series.name} ({series.start_year})",
                 "distance": score_item["score"],
                 "issue_number": keys["issue_number"],
-                "cv_issue_count": series["count_of_issues"],
+                "cv_issue_count": series.count_of_issues,
                 "url_image_hash": score_item["hash"],
-                "issue_title": issue["name"],
-                "issue_id": issue["id"],
-                "volume_id": series["id"],
+                "issue_title": issue.name,
+                "issue_id": issue.id,
+                "series_id": series.id,
                 "month": month,
                 "year": year,
                 "publisher": None,
                 "image_url": image_url,
-                "thumb_url": thumb_url,
-                "page_url": page_url,
-                "description": issue["description"],
+                "alt_image_urls": alt_urls,
+                "description": issue.description,
             }
-            if series["publisher"] is not None:
-                match["publisher"] = series["publisher"]["name"]
+            if series.publisher is not None:
+                match["publisher"] = series.publisher
 
             self.match_list.append(match)
 
@@ -574,18 +592,17 @@ class IssueIdentifier:
                 if self.callback is not None:
                     self.callback(counter, len(self.match_list) * 3)
                     counter += 1
-                self.log_msg(f"Examining alternate covers for ID: {m['volume_id']} {m['series']} ...", newline=False)
+                self.log_msg(f"Examining alternate covers for ID: {m['series_id']} {m['series']} ...", newline=False)
                 try:
                     score_item = self.get_issue_cover_match_score(
-                        comic_vine,
                         m["issue_id"],
                         m["image_url"],
-                        m["thumb_url"],
-                        m["page_url"],
+                        m["alt_image_urls"],
                         hash_list,
                         use_remote_alternates=True,
                     )
                 except Exception:
+                    logger.exception("failed examining alt covers")
                     self.match_list = []
                     return self.match_list
                 self.log_msg(f"--->{score_item['score']}")
@@ -628,7 +645,7 @@ class IssueIdentifier:
                 self.match_list.remove(match_item)
 
         # One more test for the case choosing limited series first issue vs a trade with the same cover:
-        # if we have a given issue count > 1 and the volume from CV has count==1, remove it from match list
+        # if we have a given issue count > 1 and the series from CV has count==1, remove it from match list
         if len(self.match_list) >= 2 and keys["issue_count"] is not None and keys["issue_count"] != 1:
             new_list = []
             for match in self.match_list:
@@ -636,7 +653,7 @@ class IssueIdentifier:
                     new_list.append(match)
                 else:
                     self.log_msg(
-                        f"Removing volume {match['series']} [{match['volume_id']}] from consideration (only 1 issue)"
+                        f"Removing series {match['series']} [{match['series_id']}] from consideration (only 1 issue)"
                     )
 
             if len(new_list) > 0:

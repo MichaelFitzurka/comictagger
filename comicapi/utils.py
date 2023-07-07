@@ -1,5 +1,5 @@
 """Some generic utilities"""
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,48 +14,71 @@
 # limitations under the License.
 from __future__ import annotations
 
-import glob
 import json
 import logging
 import os
 import pathlib
+import platform
 import unicodedata
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from shutil import which  # noqa: F401
 from typing import Any
 
-import pycountry
-import rapidfuzz.fuzz
-
 import comicapi.data
+
+try:
+    import icu
+
+    del icu
+    icu_available = True
+except ImportError:
+    icu_available = False
 
 logger = logging.getLogger(__name__)
 
 
-class UtilsVars:
-    already_fixed_encoding = False
+def _custom_key(tup):
+    import natsort
+
+    lst = []
+    for x in natsort.os_sort_keygen()(tup):
+        ret = x
+        if len(x) > 1 and isinstance(x[1], int) and isinstance(x[0], str) and x[0] == "":
+            ret = ("a", *x[1:])
+
+        lst.append(ret)
+    return tuple(lst)
+
+
+def os_sorted(lst: Iterable) -> Iterable:
+    import natsort
+
+    key = _custom_key
+    if icu_available or platform.system() == "Windows":
+        key = natsort.os_sort_keygen()
+    return sorted(lst, key=key)
 
 
 def combine_notes(existing_notes: str | None, new_notes: str | None, split: str) -> str:
-    split_notes, _, untouched_notes = (existing_notes or "").rpartition(split)
-    if split_notes:
+    split_notes, split_str, untouched_notes = (existing_notes or "").rpartition(split)
+    if split_notes or split_str:
         return (split_notes + (new_notes or "")).strip()
     else:
         return (untouched_notes + "\n" + (new_notes or "")).strip()
 
 
-def parse_date_str(date_str: str) -> tuple[int | None, int | None, int | None]:
+def parse_date_str(date_str: str | None) -> tuple[int | None, int | None, int | None]:
     day = None
     month = None
     year = None
     if date_str:
         parts = date_str.split("-")
-        year = xlate(parts[0], True)
+        year = xlate_int(parts[0])
         if len(parts) > 1:
-            month = xlate(parts[1], True)
+            month = xlate_int(parts[1])
             if len(parts) > 2:
-                day = xlate(parts[2], True)
+                day = xlate_int(parts[2])
     return day, month, year
 
 
@@ -64,11 +87,12 @@ def get_recursive_filelist(pathlist: list[str]) -> list[str]:
 
     filelist: list[str] = []
     for p in pathlist:
-
         if os.path.isdir(p):
-            filelist.extend(x for x in glob.glob(f"{p}{os.sep}/**", recursive=True) if not os.path.isdir(x))
-        elif str(p) not in filelist:
-            filelist.append(str(p))
+            for root, _, files in os.walk(p):
+                for f in files:
+                    filelist.append(os.path.join(root, f))
+        else:
+            filelist.append(p)
 
     return filelist
 
@@ -83,23 +107,34 @@ def add_to_path(dirname: str) -> None:
             os.environ["PATH"] = os.pathsep.join(paths)
 
 
-def xlate(data: Any, is_int: bool = False, is_float: bool = False) -> Any:
+def xlate_int(data: Any) -> int | None:
+    data = xlate_float(data)
+    if data is None:
+        return None
+    return int(data)
+
+
+def xlate_float(data: Any) -> float | None:
+    if isinstance(data, str):
+        data = data.strip()
     if data is None or data == "":
         return None
-    if is_int or is_float:
-        i: str | int | float
-        if isinstance(data, (int, float)):
-            i = data
-        else:
-            i = str(data).translate(defaultdict(lambda: None, zip((ord(c) for c in "1234567890."), "1234567890.")))
-        if i == "":
-            return None
-        try:
-            if is_float:
-                return float(i)
-            return int(float(i))
-        except ValueError:
-            return None
+    i: str | int | float
+    if isinstance(data, (int, float)):
+        i = data
+    else:
+        i = str(data).translate(defaultdict(lambda: None, zip((ord(c) for c in "1234567890."), "1234567890.")))
+    if i == "":
+        return None
+    try:
+        return float(i)
+    except ValueError:
+        return None
+
+
+def xlate(data: Any) -> str | None:
+    if data is None or isinstance(data, str) and data.strip() == "":
+        return None
 
     return str(data)
 
@@ -163,9 +198,11 @@ def sanitize_title(text: str, basic: bool = False) -> str:
 
 
 def titles_match(search_title: str, record_title: str, threshold: int = 90) -> bool:
+    import rapidfuzz.fuzz
+
     sanitized_search = sanitize_title(search_title)
     sanitized_record = sanitize_title(record_title)
-    ratio: int = rapidfuzz.fuzz.ratio(sanitized_search, sanitized_record)
+    ratio = int(rapidfuzz.fuzz.ratio(sanitized_search, sanitized_record))
     logger.debug(
         "search title: %s ; record title: %s ; ratio: %d ; match threshold: %d",
         search_title,
@@ -186,26 +223,41 @@ def unique_file(file_name: pathlib.Path) -> pathlib.Path:
         counter += 1
 
 
-languages: dict[str | None, str | None] = defaultdict(lambda: None)
+_languages: dict[str | None, str | None] = defaultdict(lambda: None)
 
-countries: dict[str | None, str | None] = defaultdict(lambda: None)
+_countries: dict[str | None, str | None] = defaultdict(lambda: None)
 
-for c in pycountry.countries:
-    if "alpha_2" in c._fields:
-        countries[c.alpha_2] = c.name
 
-for lng in pycountry.languages:
-    if "alpha_2" in lng._fields:
-        languages[lng.alpha_2] = lng.name
+def countries() -> dict[str | None, str | None]:
+    if not _countries:
+        import pycountry
+
+        for c in pycountry.countries:
+            if "alpha_2" in c._fields:
+                _countries[c.alpha_2] = c.name
+    return _countries
+
+
+def languages() -> dict[str | None, str | None]:
+    if not _languages:
+        import pycountry
+
+        for lng in pycountry.languages:
+            if "alpha_2" in lng._fields:
+                _languages[lng.alpha_2] = lng.name
+    return _languages
 
 
 def get_language_from_iso(iso: str | None) -> str | None:
-    return languages[iso]
+    return languages()[iso]
 
 
 def get_language_iso(string: str | None) -> str | None:
     if string is None:
         return None
+    import pycountry
+
+    # Return current string if all else fails
     lang = string.casefold()
 
     try:
@@ -213,6 +265,10 @@ def get_language_iso(string: str | None) -> str | None:
     except LookupError:
         pass
     return lang
+
+
+def get_country_from_iso(iso: str | None) -> str | None:
+    return countries()[iso]
 
 
 def get_publisher(publisher: str) -> tuple[str, str]:
@@ -223,7 +279,7 @@ def get_publisher(publisher: str) -> tuple[str, str]:
         if ok:
             break
 
-    return (imprint, publisher)
+    return imprint, publisher
 
 
 def update_publishers(new_publishers: Mapping[str, Mapping[str, str]]) -> None:
@@ -234,7 +290,7 @@ def update_publishers(new_publishers: Mapping[str, Mapping[str, str]]) -> None:
             publishers[publisher] = ImprintDict(publisher, new_publishers[publisher])
 
 
-class ImprintDict(dict):
+class ImprintDict(dict):  # type: ignore
     """
     ImprintDict takes a publisher and a dict or mapping of lowercased
     imprint names to the proper imprint name. Retrieving a value from an
@@ -242,7 +298,7 @@ class ImprintDict(dict):
     if the key does not exist the key is returned as the publisher unchanged
     """
 
-    def __init__(self, publisher: str, mapping: tuple | Mapping = (), **kwargs: dict) -> None:
+    def __init__(self, publisher: str, mapping: tuple | Mapping = (), **kwargs: dict) -> None:  # type: ignore
         super().__init__(mapping, **kwargs)
         self.publisher = publisher
 
@@ -252,11 +308,11 @@ class ImprintDict(dict):
     def __getitem__(self, k: str) -> tuple[str, str, bool]:
         item = super().__getitem__(k.casefold())
         if k.casefold() == self.publisher.casefold():
-            return ("", self.publisher, True)
+            return "", self.publisher, True
         if item is None:
-            return ("", k, False)
+            return "", k, False
         else:
-            return (item, self.publisher, True)
+            return item, self.publisher, True
 
     def copy(self) -> ImprintDict:
         return ImprintDict(self.publisher, super().copy())

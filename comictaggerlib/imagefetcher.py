@@ -1,6 +1,6 @@
 """A class to manage fetching and caching of images by URL"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,21 +18,18 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import pathlib
 import shutil
 import sqlite3 as lite
 import tempfile
+from typing import TYPE_CHECKING
 
 import requests
 
 from comictaggerlib import ctversion
-from comictaggerlib.settings import ComicTaggerSettings
 
-try:
+if TYPE_CHECKING:
     from PyQt5 import QtCore, QtNetwork
-
-    qt_available = True
-except ImportError:
-    qt_available = False
 
 logger = logging.getLogger(__name__)
 
@@ -41,27 +38,32 @@ class ImageFetcherException(Exception):
     ...
 
 
-def fetch_complete(image_data: bytes | QtCore.QByteArray) -> None:
+def fetch_complete(url: str, image_data: bytes | QtCore.QByteArray) -> None:
     ...
 
 
 class ImageFetcher:
-
     image_fetch_complete = fetch_complete
+    qt_available = True
 
-    def __init__(self) -> None:
-
-        self.settings_folder = ComicTaggerSettings.get_settings_folder()
-        self.db_file = os.path.join(self.settings_folder, "image_url_cache.db")
-        self.cache_folder = os.path.join(self.settings_folder, "image_cache")
+    def __init__(self, cache_folder: pathlib.Path) -> None:
+        self.db_file = cache_folder / "image_url_cache.db"
+        self.cache_folder = cache_folder / "image_cache"
 
         self.user_data = None
         self.fetched_url = ""
 
+        if self.qt_available:
+            try:
+                from PyQt5 import QtNetwork
+
+                self.qt_available = True
+            except ImportError:
+                self.qt_available = False
         if not os.path.exists(self.db_file):
             self.create_image_db()
 
-        if qt_available:
+        if self.qt_available:
             self.nam = QtNetwork.QNetworkAccessManager()
 
     def clear_cache(self) -> None:
@@ -81,22 +83,25 @@ class ImageFetcher:
 
         # first look in the DB
         image_data = self.get_image_from_cache(url)
-        if blocking or not qt_available:
+        # Async for retrieving covers seems to work well
+        if blocking or not self.qt_available:
             if not image_data:
                 try:
                     image_data = requests.get(url, headers={"user-agent": "comictagger/" + ctversion.version}).content
+                    # save the image to the cache
+                    self.add_image_to_cache(self.fetched_url, image_data)
                 except Exception as e:
                     logger.exception("Fetching url failed: %s")
                     raise ImageFetcherException("Network Error!") from e
-
-            # save the image to the cache
-            self.add_image_to_cache(self.fetched_url, image_data)
+            ImageFetcher.image_fetch_complete(url, image_data)
             return image_data
 
-        if qt_available:
+        if self.qt_available:
+            from PyQt5 import QtCore, QtNetwork
+
             # if we found it, just emit the signal asap
             if image_data:
-                ImageFetcher.image_fetch_complete(QtCore.QByteArray(image_data))
+                ImageFetcher.image_fetch_complete(url, QtCore.QByteArray(image_data))
                 return b""
 
             # didn't find it.  look online
@@ -112,12 +117,11 @@ class ImageFetcher:
         image_data = reply.readAll()
 
         # save the image to the cache
-        self.add_image_to_cache(self.fetched_url, image_data)
+        self.add_image_to_cache(reply.request().url().toString(), image_data)
 
-        ImageFetcher.image_fetch_complete(image_data)
+        ImageFetcher.image_fetch_complete(reply.request().url().toString(), image_data)
 
     def create_image_db(self) -> None:
-
         # this will wipe out any existing version
         open(self.db_file, "wb").close()
 
@@ -135,7 +139,6 @@ class ImageFetcher:
             cur.execute("CREATE TABLE Images(url TEXT,filename TEXT,timestamp TEXT,PRIMARY KEY (url))")
 
     def add_image_to_cache(self, url: str, image_data: bytes | QtCore.QByteArray) -> None:
-
         con = lite.connect(self.db_file)
 
         with con:
@@ -150,7 +153,6 @@ class ImageFetcher:
             cur.execute("INSERT or REPLACE INTO Images VALUES(?, ?, ?)", (url, filename, timestamp))
 
     def get_image_from_cache(self, url: str) -> bytes:
-
         con = lite.connect(self.db_file)
         with con:
             cur = con.cursor()

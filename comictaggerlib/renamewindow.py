@@ -1,6 +1,6 @@
 """A PyQT4 dialog to confirm rename"""
 #
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,16 +17,18 @@ from __future__ import annotations
 
 import logging
 
+import settngs
 from PyQt5 import QtCore, QtWidgets, uic
 
 from comicapi import utils
 from comicapi.comicarchive import ComicArchive, MetaDataStyle
 from comicapi.genericmetadata import GenericMetadata
+from comictaggerlib.ctsettings import ct_ns
 from comictaggerlib.filerenamer import FileRenamer, get_rename_dir
-from comictaggerlib.settings import ComicTaggerSettings
 from comictaggerlib.settingswindow import SettingsWindow
 from comictaggerlib.ui import ui_path
 from comictaggerlib.ui.qtutils import center_window_on_parent
+from comictalker.comictalker import ComicTalker
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,8 @@ class RenameWindow(QtWidgets.QDialog):
         parent: QtWidgets.QWidget,
         comic_archive_list: list[ComicArchive],
         data_style: int,
-        settings: ComicTaggerSettings,
+        config: settngs.Config[ct_ns],
+        talkers: dict[str, ComicTalker],
     ) -> None:
         super().__init__(parent)
 
@@ -52,42 +55,39 @@ class RenameWindow(QtWidgets.QDialog):
             )
         )
 
-        self.settings = settings
+        self.config = config
+        self.talkers = talkers
         self.comic_archive_list = comic_archive_list
         self.data_style = data_style
         self.rename_list: list[str] = []
 
         self.btnSettings.clicked.connect(self.modify_settings)
-        platform = "universal" if self.settings.rename_strict else "auto"
-        self.renamer = FileRenamer(None, platform=platform)
+        platform = "universal" if self.config[0].rename_strict else "auto"
+        self.renamer = FileRenamer(None, platform=platform, replacements=self.config[0].rename_replacements)
 
         self.do_preview()
 
     def config_renamer(self, ca: ComicArchive, md: GenericMetadata | None = None) -> str:
-        self.renamer.set_template(self.settings.rename_template)
-        self.renamer.set_issue_zero_padding(self.settings.rename_issue_number_padding)
-        self.renamer.set_smart_cleanup(self.settings.rename_use_smart_string_cleanup)
+        self.renamer.set_template(self.config[0].rename_template)
+        self.renamer.set_issue_zero_padding(self.config[0].rename_issue_number_padding)
+        self.renamer.set_smart_cleanup(self.config[0].rename_use_smart_string_cleanup)
+        self.renamer.replacements = self.config[0].rename_replacements
 
         new_ext = ca.path.suffix  # default
-        if self.settings.rename_extension_based_on_archive:
-            if ca.is_sevenzip():
-                new_ext = ".cb7"
-            elif ca.is_zip():
-                new_ext = ".cbz"
-            elif ca.is_rar():
-                new_ext = ".cbr"
+        if self.config[0].rename_set_extension_based_on_archive:
+            new_ext = ca.extension()
 
         if md is None:
             md = ca.read_metadata(self.data_style)
             if md.is_empty:
                 md = ca.metadata_from_filename(
-                    self.settings.complicated_parser,
-                    self.settings.remove_c2c,
-                    self.settings.remove_fcbd,
-                    self.settings.remove_publisher,
+                    self.config[0].filename_complicated_parser,
+                    self.config[0].filename_remove_c2c,
+                    self.config[0].filename_remove_fcbd,
+                    self.config[0].filename_remove_publisher,
                 )
         self.renamer.set_metadata(md)
-        self.renamer.move = self.settings.rename_move_dir
+        self.renamer.move = self.config[0].rename_move_to_dir
         return new_ext
 
     def do_preview(self) -> None:
@@ -100,7 +100,7 @@ class RenameWindow(QtWidgets.QDialog):
             try:
                 new_name = self.renamer.determine_name(new_ext)
             except ValueError as e:
-                logger.exception("Invalid format string: %s", self.settings.rename_template)
+                logger.exception("Invalid format string: %s", self.config[0].rename_template)
                 QtWidgets.QMessageBox.critical(
                     self,
                     "Invalid format string!",
@@ -114,7 +114,7 @@ class RenameWindow(QtWidgets.QDialog):
                 return
             except Exception as e:
                 logger.exception(
-                    "Formatter failure: %s metadata: %s", self.settings.rename_template, self.renamer.metadata
+                    "Formatter failure: %s metadata: %s", self.config[0].rename_template, self.renamer.metadata
                 )
                 QtWidgets.QMessageBox.critical(
                     self,
@@ -125,6 +125,7 @@ class RenameWindow(QtWidgets.QDialog):
                     "<a href='https://github.com/comictagger/comictagger'>"
                     "https://github.com/comictagger/comictagger</a>",
                 )
+                return
 
             row = self.twList.rowCount()
             self.twList.insertRow(row)
@@ -161,7 +162,7 @@ class RenameWindow(QtWidgets.QDialog):
         self.twList.setSortingEnabled(True)
 
     def modify_settings(self) -> None:
-        settingswin = SettingsWindow(self, self.settings)
+        settingswin = SettingsWindow(self, self.config, self.talkers)
         settingswin.setModal(True)
         settingswin.show_rename_tab()
         settingswin.exec()
@@ -169,7 +170,6 @@ class RenameWindow(QtWidgets.QDialog):
             self.do_preview()
 
     def accept(self) -> None:
-
         prog_dialog = QtWidgets.QProgressDialog("", "Cancel", 0, len(self.rename_list), self)
         prog_dialog.setWindowTitle("Renaming Archives")
         prog_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
@@ -179,7 +179,6 @@ class RenameWindow(QtWidgets.QDialog):
 
         try:
             for idx, comic in enumerate(zip(self.comic_archive_list, self.rename_list)):
-
                 QtCore.QCoreApplication.processEvents()
                 if prog_dialog.wasCanceled():
                     break
@@ -189,7 +188,10 @@ class RenameWindow(QtWidgets.QDialog):
                 center_window_on_parent(prog_dialog)
                 QtCore.QCoreApplication.processEvents()
 
-                folder = get_rename_dir(comic[0], self.settings.rename_dir if self.settings.rename_move_dir else None)
+                folder = get_rename_dir(
+                    comic[0],
+                    self.config[0].rename_dir if self.config[0].rename_move_to_dir else None,
+                )
 
                 full_path = folder / comic[1]
 
@@ -197,7 +199,7 @@ class RenameWindow(QtWidgets.QDialog):
                     logger.info("%s: Filename is already good!", comic[1])
                     continue
 
-                if not comic[0].is_writable(check_rar_status=False):
+                if not comic[0].is_writable(check_archive_status=False):
                     continue
 
                 comic[0].rename(utils.unique_file(full_path))

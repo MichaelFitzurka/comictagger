@@ -1,5 +1,5 @@
 """A class to encapsulate ComicRack's ComicInfo.xml data"""
-# Copyright 2012-2014 Anthony Beville
+# Copyright 2012-2014 ComicTagger Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,13 +22,11 @@ from xml.etree.ElementTree import ElementTree
 
 from comicapi import utils
 from comicapi.genericmetadata import GenericMetadata, ImageMetadata
-from comicapi.issuestring import IssueString
 
 logger = logging.getLogger(__name__)
 
 
 class ComicInfoXml:
-
     writer_synonyms = ["writer", "plotter", "scripter"]
     penciller_synonyms = ["artist", "penciller", "penciler", "breakdowns"]
     inker_synonyms = ["inker", "artist", "finishes"]
@@ -49,7 +47,6 @@ class ComicInfoXml:
         return parsable_credits
 
     def metadata_from_string(self, string: bytes) -> GenericMetadata:
-
         tree = ET.ElementTree(ET.fromstring(string))
         return self.convert_xml_to_metadata(tree)
 
@@ -59,7 +56,6 @@ class ComicInfoXml:
         return str(tree_str)
 
     def convert_metadata_to_xml(self, metadata: GenericMetadata, xml: bytes = b"") -> ElementTree:
-
         # shorthand for the metadata
         md = metadata
 
@@ -113,7 +109,6 @@ class ComicInfoXml:
         # first, loop thru credits, and build a list for each role that CIX
         # supports
         for credit in metadata.credits:
-
             if credit["role"].casefold() in set(self.writer_synonyms):
                 credit_writer_list.append(credit["person"].replace(",", ""))
 
@@ -178,7 +173,6 @@ class ComicInfoXml:
         return tree
 
     def convert_xml_to_metadata(self, tree: ElementTree) -> GenericMetadata:
-
         root = tree.getroot()
 
         if root.tag != "ComicInfo":
@@ -194,17 +188,17 @@ class ComicInfoXml:
 
         md.series = utils.xlate(get("Series"))
         md.title = utils.xlate(get("Title"))
-        md.issue = IssueString(utils.xlate(get("Number"))).as_string()
-        md.issue_count = utils.xlate(get("Count"), True)
-        md.volume = utils.xlate(get("Volume"), True)
+        md.issue = utils.xlate(get("Number"))
+        md.issue_count = utils.xlate_int(get("Count"))
+        md.volume = utils.xlate_int(get("Volume"))
         md.alternate_series = utils.xlate(get("AlternateSeries"))
-        md.alternate_number = IssueString(utils.xlate(get("AlternateNumber"))).as_string()
-        md.alternate_count = utils.xlate(get("AlternateCount"), True)
+        md.alternate_number = utils.xlate(get("AlternateNumber"))
+        md.alternate_count = utils.xlate_int(get("AlternateCount"))
         md.comments = utils.xlate(get("Summary"))
         md.notes = utils.xlate(get("Notes"))
-        md.year = utils.xlate(get("Year"), True)
-        md.month = utils.xlate(get("Month"), True)
-        md.day = utils.xlate(get("Day"), True)
+        md.year = utils.xlate_int(get("Year"))
+        md.month = utils.xlate_int(get("Month"))
+        md.day = utils.xlate_int(get("Day"))
         md.publisher = utils.xlate(get("Publisher"))
         md.imprint = utils.xlate(get("Imprint"))
         md.genre = utils.xlate(get("Genre"))
@@ -215,12 +209,12 @@ class ComicInfoXml:
         md.characters = utils.xlate(get("Characters"))
         md.teams = utils.xlate(get("Teams"))
         md.locations = utils.xlate(get("Locations"))
-        md.page_count = utils.xlate(get("PageCount"), True)
+        md.page_count = utils.xlate_int(get("PageCount"))
         md.scan_info = utils.xlate(get("ScanInformation"))
         md.story_arc = utils.xlate(get("StoryArc"))
         md.series_group = utils.xlate(get("SeriesGroup"))
         md.maturity_rating = utils.xlate(get("AgeRating"))
-        md.critical_rating = utils.xlate(get("CommunityRating"), is_float=True)
+        md.critical_rating = utils.xlate_float(get("CommunityRating"))
 
         tmp = utils.xlate(get("BlackAndWhite"))
         if tmp is not None and tmp.casefold() in ["yes", "true", "1"]:

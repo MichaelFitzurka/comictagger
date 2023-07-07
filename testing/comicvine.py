@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import comicapi.genericmetadata
-import comictaggerlib.comicvinetalker
+from comicapi import utils
+from comictalker.resulttypes import ComicIssue, ComicSeries
+from comictalker.talker_utils import cleanup_html
 
 
 def filter_field_list(cv_result, kwargs):
@@ -156,12 +158,50 @@ cv_not_found = {
     "status_code": 101,
     "results": [],
 }
-date = comictaggerlib.comicvinetalker.ComicVineTalker().parse_date_str(cv_issue_result["results"]["cover_date"])
+comic_issue_result = ComicIssue(
+    aliases=cv_issue_result["results"]["aliases"] or [],
+    cover_date=cv_issue_result["results"]["cover_date"],
+    description=cv_issue_result["results"]["description"],
+    id=str(cv_issue_result["results"]["id"]),
+    image_url=cv_issue_result["results"]["image"]["super_url"],
+    issue_number=cv_issue_result["results"]["issue_number"],
+    volume=None,
+    name=cv_issue_result["results"]["name"],
+    site_detail_url=cv_issue_result["results"]["site_detail_url"],
+    series=ComicSeries(
+        id=str(cv_issue_result["results"]["volume"]["id"]),
+        name=cv_issue_result["results"]["volume"]["name"],
+        aliases=[],
+        count_of_issues=cv_volume_result["results"]["count_of_issues"],
+        count_of_volumes=None,
+        description=cv_volume_result["results"]["description"],
+        image_url=cv_volume_result["results"]["image"]["super_url"],
+        publisher=cv_volume_result["results"]["publisher"]["name"],
+        start_year=int(cv_volume_result["results"]["start_year"]),
+        genres=[],
+        format=None,
+    ),
+    characters=[],
+    alt_image_urls=[],
+    complete=False,
+    credits=[],
+    locations=[],
+    story_arcs=[],
+    critical_rating=0,
+    maturity_rating="",
+    manga="",
+    language="",
+    country="",
+    genres=[],
+    tags=[],
+    teams=[],
+)
+date = utils.parse_date_str(cv_issue_result["results"]["cover_date"])
 
 cv_md = comicapi.genericmetadata.GenericMetadata(
     is_empty=False,
     tag_origin="Comic Vine",
-    issue_id=cv_issue_result["results"]["id"],
+    issue_id=str(cv_issue_result["results"]["id"]),
     series=cv_issue_result["results"]["volume"]["name"],
     issue=cv_issue_result["results"]["issue_number"],
     title=cv_issue_result["results"]["name"],
@@ -169,13 +209,11 @@ cv_md = comicapi.genericmetadata.GenericMetadata(
     month=date[1],
     year=date[2],
     day=date[0],
-    issue_count=None,
+    issue_count=6,
     volume=None,
     genre=None,
     language=None,
-    comments=comictaggerlib.comicvinetalker.ComicVineTalker().cleanup_html(
-        cv_issue_result["results"]["description"], False
-    ),
+    comments=cleanup_html(cv_issue_result["results"]["description"], False),
     volume_count=None,
     critical_rating=None,
     country=None,
@@ -193,9 +231,9 @@ cv_md = comicapi.genericmetadata.GenericMetadata(
     story_arc=None,
     series_group=None,
     scan_info=None,
-    characters="",
-    teams="",
-    locations="",
+    characters=None,
+    teams=None,
+    locations=None,
     credits=[
         comicapi.genericmetadata.CreditMetadata(person=x["name"], role=x["role"].title(), primary=False)
         for x in cv_issue_result["results"]["person_credits"]
@@ -207,7 +245,7 @@ cv_md = comicapi.genericmetadata.GenericMetadata(
     rights=None,
     identifier=None,
     last_mark=None,
-    cover_image=None,
+    cover_image=cv_issue_result["results"]["image"]["super_url"],
 )
 
 

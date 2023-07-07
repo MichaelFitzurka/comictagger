@@ -13,9 +13,10 @@ from PIL import Image
 
 import comicapi.comicarchive
 import comicapi.genericmetadata
-import comictaggerlib.comiccacher
-import comictaggerlib.comicvinetalker
-import comictaggerlib.settings
+import comictaggerlib.ctsettings
+import comictalker
+import comictalker.comiccacher
+import comictalker.talkers.comicvine
 from comicapi import utils
 from testing import comicvine, filenames
 from testing.comicdata import all_seed_imprints, seed_imprints
@@ -34,7 +35,6 @@ def tmp_comic(tmp_path):
 
 @pytest.fixture
 def cbz_double_cover(tmp_path, tmp_comic):
-
     cover = Image.open(io.BytesIO(tmp_comic.get_page(0)))
 
     other_page = Image.open(io.BytesIO(tmp_comic.get_page(tmp_comic.get_number_of_pages() - 1)))
@@ -54,7 +54,7 @@ def no_requests(monkeypatch) -> None:
 
 
 @pytest.fixture
-def comicvine_api(monkeypatch, cbz, comic_cache) -> unittest.mock.Mock:
+def comicvine_api(monkeypatch, cbz, comic_cache, mock_version, config) -> comictalker.talkers.comicvine.ComicVineTalker:
     # Any arguments may be passed and mock_get() will always return our
     # mocked object, which only has the .json() method or None for invalid urls.
 
@@ -65,7 +65,6 @@ def comicvine_api(monkeypatch, cbz, comic_cache) -> unittest.mock.Mock:
         return cv_list
 
     def mock_get(*args, **kwargs):
-
         if args:
             if args[0].startswith("https://comicvine.gamespot.com/api/volume/4050-23437"):
                 cv_result = copy.deepcopy(comicvine.cv_volume_result)
@@ -111,7 +110,12 @@ def comicvine_api(monkeypatch, cbz, comic_cache) -> unittest.mock.Mock:
 
     # apply the monkeypatch for requests.get to mock_get
     monkeypatch.setattr(requests, "get", m_get)
-    return m_get
+
+    cv = comictalker.talkers.comicvine.ComicVineTalker(
+        version=mock_version[0],
+        cache_folder=config[0].runtime_config.user_cache_dir,
+    )
+    return cv
 
 
 @pytest.fixture
@@ -123,6 +127,7 @@ def mock_version(monkeypatch):
     monkeypatch.setattr(comictaggerlib.ctversion, "__version__", version)
     monkeypatch.setattr(comictaggerlib.ctversion, "version_tuple", version_tuple)
     monkeypatch.setattr(comictaggerlib.ctversion, "__version_tuple__", version_tuple)
+    yield version, version_tuple
 
 
 @pytest.fixture
@@ -148,10 +153,21 @@ def seed_all_publishers(monkeypatch):
 
 
 @pytest.fixture
-def settings(tmp_path):
-    yield comictaggerlib.settings.ComicTaggerSettings(tmp_path / "settings")
+def config(tmp_path):
+    from comictaggerlib.main import App
+
+    app = App()
+    app.register_settings()
+
+    defaults = app.parse_settings(comictaggerlib.ctsettings.ComicTaggerPaths(tmp_path / "config"), "")
+    defaults[0].runtime_config.user_data_dir.mkdir(parents=True, exist_ok=True)
+    defaults[0].runtime_config.user_config_dir.mkdir(parents=True, exist_ok=True)
+    defaults[0].runtime_config.user_cache_dir.mkdir(parents=True, exist_ok=True)
+    defaults[0].runtime_config.user_state_dir.mkdir(parents=True, exist_ok=True)
+    defaults[0].runtime_config.user_log_dir.mkdir(parents=True, exist_ok=True)
+    yield defaults
 
 
 @pytest.fixture
-def comic_cache(settings) -> Generator[comictaggerlib.comiccacher.ComicCacher, Any, None]:
-    yield comictaggerlib.comiccacher.ComicCacher()
+def comic_cache(config, mock_version) -> Generator[comictalker.comiccacher.ComicCacher, Any, None]:
+    yield comictalker.comiccacher.ComicCacher(config[0].runtime_config.user_cache_dir, mock_version[0])
